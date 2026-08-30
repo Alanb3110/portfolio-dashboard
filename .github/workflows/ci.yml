@@ -22,3 +22,7 @@ jobs:
         run: npm install --ignore-scripts
       - name: Typecheck, test and build
         run: npm run check
+      - name: Validate Cloudflare market proxy
+        run: |
+          node --check worker/src/index.js
+          node worker/smoke-test.mjs
