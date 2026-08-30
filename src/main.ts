@@ -1,5 +1,17 @@
 import './styles.css';
 import { analyzePortfolio } from './analytics';
+import {
+  buildHistoryBackup,
+  compareHistorySnapshots,
+  createHistorySnapshot,
+  eraseHistorySnapshots,
+  importHistorySnapshots,
+  loadHistorySnapshots,
+  parseHistoryBackup,
+  previousHistorySnapshot,
+  saveHistorySnapshot,
+  type HistorySnapshot,
+} from './history';
 import { parseNetWorthPdf } from './net-worth';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
@@ -26,6 +38,11 @@ function formatEur(value: number): string {
   }).format(value);
 }
 
+function formatSignedEur(value: number): string {
+  if (value === 0) return formatEur(0);
+  return `${value > 0 ? '+' : '−'}${formatEur(Math.abs(value))}`;
+}
+
 function formatPercent(value: number | null): string {
   if (value == null) return 'N/A';
   return new Intl.NumberFormat('fr-FR', {
@@ -35,12 +52,27 @@ function formatPercent(value: number | null): string {
   }).format(value);
 }
 
+function formatSignedPoints(value: number): string {
+  const points = value * 100;
+  if (Math.abs(points) < 0.05) return '0,0 pp';
+  const formatted = new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(Math.abs(points));
+  return `${points > 0 ? '+' : '−'}${formatted} pp`;
+}
+
 function metric(label: string, value: string, subtext?: string): HTMLElement {
   const card = element('section', 'metric-card');
   card.append(element('p', 'metric-label', label), element('strong', 'metric-value', value));
   if (subtext) card.append(element('p', 'metric-subtext', subtext));
   return card;
 }
+
+let currentAnalysis: PortfolioAnalysis | null = null;
+let currentSnapshot: NetWorthSnapshot | null = null;
+let historySnapshots: HistorySnapshot[] = [];
+let historyAvailable = true;
 
 const shell = element('div', 'shell');
 const header = element('header', 'hero');
@@ -60,7 +92,7 @@ privacy.append(
   element(
     'span',
     undefined,
-    ' Les données restent uniquement en mémoire et sont effacées au rechargement de la page.',
+    ' Les PDF/CSV restent en mémoire. Seuls des snapshots dérivés sont conservés sur cet appareil si tu choisis explicitement de les enregistrer.',
   ),
 );
 
@@ -88,11 +120,79 @@ analyzeButton.type = 'button';
 const status = element('p', 'status', 'Sélectionne les deux fichiers pour commencer.');
 importSection.append(formGrid, analyzeButton, status);
 
+const historySection = element('section', 'panel');
+historySection.append(
+  element('h2', undefined, 'Historique local'),
+  element(
+    'p',
+    'muted-block',
+    'Enregistre uniquement les résultats dérivés nécessaires au suivi dans IndexedDB. Les fichiers source et le ledger brut ne sont jamais sauvegardés par cette fonction.',
+  ),
+);
+const historyActions = element('div', 'action-grid');
+const saveSnapshotButton = element('button', 'secondary-button', 'Enregistrer le snapshot') as HTMLButtonElement;
+saveSnapshotButton.type = 'button';
+saveSnapshotButton.disabled = true;
+const exportBackupButton = element('button', 'secondary-button', 'Exporter la sauvegarde') as HTMLButtonElement;
+exportBackupButton.type = 'button';
+const importBackupButton = element('button', 'secondary-button', 'Importer une sauvegarde') as HTMLButtonElement;
+importBackupButton.type = 'button';
+const eraseHistoryButton = element('button', 'danger-button', 'Effacer les données locales') as HTMLButtonElement;
+eraseHistoryButton.type = 'button';
+historyActions.append(saveSnapshotButton, exportBackupButton, importBackupButton, eraseHistoryButton);
+
+const backupInput = document.createElement('input');
+backupInput.type = 'file';
+backupInput.accept = '.json,application/json';
+backupInput.hidden = true;
+const historyStatus = element('p', 'status', 'Chargement de l’historique local…');
+const historyList = element('div', 'history-list');
+historySection.append(historyActions, backupInput, historyStatus, historyList);
+
 const results = element('section', 'results');
 results.hidden = true;
 
-shell.append(header, privacy, importSection, results);
+shell.append(header, privacy, importSection, historySection, results);
 app.append(shell);
+
+function setHistoryControls(): void {
+  saveSnapshotButton.disabled = !historyAvailable || currentAnalysis == null || currentSnapshot == null;
+  exportBackupButton.disabled = !historyAvailable || historySnapshots.length === 0;
+  importBackupButton.disabled = !historyAvailable;
+  eraseHistoryButton.disabled = !historyAvailable || historySnapshots.length === 0;
+}
+
+function renderHistoryList(): void {
+  historyList.replaceChildren();
+  if (historySnapshots.length === 0) {
+    historyList.append(element('p', 'muted-block', 'Aucun snapshot enregistré sur cet appareil.'));
+    return;
+  }
+
+  const recent = [...historySnapshots].sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate)).slice(0, 6);
+  for (const snapshot of recent) {
+    const row = element('div', 'history-row');
+    row.append(
+      element('span', undefined, snapshot.snapshotDate),
+      element('strong', undefined, formatEur(snapshot.mainValue)),
+    );
+    historyList.append(row);
+  }
+}
+
+async function refreshHistory(message?: string): Promise<void> {
+  try {
+    historySnapshots = await loadHistorySnapshots();
+    historyAvailable = true;
+    historyStatus.textContent = message ?? `${historySnapshots.length} snapshot(s) enregistré(s) localement.`;
+  } catch (error) {
+    historyAvailable = false;
+    const detail = error instanceof Error ? error.message : String(error);
+    historyStatus.textContent = `Historique local indisponible : ${detail}`;
+  }
+  setHistoryControls();
+  renderHistoryList();
+}
 
 function renderPositions(snapshot: NetWorthSnapshot, mainValue: number): HTMLElement {
   const section = element('section', 'panel');
@@ -121,6 +221,46 @@ function renderPositions(snapshot: NetWorthSnapshot, mainValue: number): HTMLEle
     list.append(row);
   }
   section.append(list);
+  return section;
+}
+
+function renderHistoryComparison(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot): HTMLElement | null {
+  const current = createHistorySnapshot(analysis, snapshot);
+  const previous = previousHistorySnapshot(historySnapshots, current.snapshotDate);
+  if (!previous) return null;
+
+  const comparison = compareHistorySnapshots(current, previous);
+  const section = element('section', 'panel');
+  section.append(
+    element('h2', undefined, `Depuis le snapshot du ${comparison.previousDate}`),
+    element(
+      'p',
+      'muted-block',
+      'Variation brute entre deux relevés officiels : elle inclut les apports et retraits et ne doit pas être interprétée comme un rendement.',
+    ),
+  );
+
+  const summary = element('div', 'comparison-grid');
+  summary.append(
+    metric('Variation valeur principale', formatSignedEur(comparison.mainValueDelta), formatPercent(comparison.mainValueDeltaRatio)),
+  );
+  section.append(summary);
+
+  const meaningful = comparison.allocationDeltas.filter((item) => Math.abs(item.weightDelta) >= 0.0005).slice(0, 5);
+  if (meaningful.length > 0) {
+    section.append(element('h3', 'subheading', 'Principales dérives d’allocation'));
+    const list = element('div', 'position-list');
+    for (const item of meaningful) {
+      const row = element('div', 'position-row');
+      const identity = element('div');
+      identity.append(element('strong', undefined, item.name), element('span', 'muted', item.symbol ?? 'sans symbole'));
+      const values = element('div', 'position-values');
+      values.append(element('strong', undefined, formatSignedPoints(item.weightDelta)));
+      row.append(identity, values);
+      list.append(row);
+    }
+    section.append(list);
+  }
   return section;
 }
 
@@ -167,7 +307,10 @@ function renderAnalysis(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot,
     metric('Patrimoine Trade Republic', formatEur(analysis.totalNetWorth), 'Informationnel'),
   );
 
-  results.append(title, grid, renderPositions(snapshot, analysis.mainValue), renderQuality(audit, analysis));
+  results.append(title, grid);
+  const comparison = renderHistoryComparison(analysis, snapshot);
+  if (comparison) results.append(comparison);
+  results.append(renderPositions(snapshot, analysis.mainValue), renderQuality(audit, analysis));
   results.hidden = false;
 }
 
@@ -189,15 +332,81 @@ analyzeButton.addEventListener('click', async () => {
     const audit = auditLedger(ledger);
     const snapshot = await parseNetWorthPdf(pdfFile);
     const analysis = analyzePortfolio(ledger, snapshot);
+    currentAnalysis = analysis;
+    currentSnapshot = snapshot;
+    await refreshHistory();
     renderAnalysis(analysis, snapshot, audit);
-    status.textContent = 'Analyse terminée. Les fichiers n’ont pas quitté cet appareil.';
+    status.textContent = 'Analyse terminée. Les fichiers bruts n’ont pas quitté cet appareil et ne sont pas sauvegardés.';
   } catch (error) {
+    currentAnalysis = null;
+    currentSnapshot = null;
+    setHistoryControls();
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
   } finally {
     analyzeButton.disabled = false;
   }
 });
+
+saveSnapshotButton.addEventListener('click', async () => {
+  if (!currentAnalysis || !currentSnapshot) return;
+  try {
+    await saveHistorySnapshot(createHistorySnapshot(currentAnalysis, currentSnapshot));
+    await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
+    status.textContent = 'Snapshot dérivé enregistré sur cet appareil. Les PDF/CSV restent non persistés.';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    historyStatus.textContent = `Échec de l’enregistrement : ${message}`;
+  }
+});
+
+exportBackupButton.addEventListener('click', () => {
+  if (historySnapshots.length === 0) return;
+  const backup = buildHistoryBackup(historySnapshots);
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `portfolio-dashboard-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  historyStatus.textContent = 'Sauvegarde exportée. Ce fichier contient des données financières dérivées : conserve-le de façon privée.';
+});
+
+importBackupButton.addEventListener('click', () => backupInput.click());
+
+backupInput.addEventListener('change', async () => {
+  const file = backupInput.files?.[0];
+  if (!file) return;
+  try {
+    const backup = parseHistoryBackup(await file.text());
+    historySnapshots = await importHistorySnapshots(backup.snapshots);
+    historyAvailable = true;
+    setHistoryControls();
+    renderHistoryList();
+    historyStatus.textContent = `${backup.snapshots.length} snapshot(s) importé(s) ; ${historySnapshots.length} date(s) disponible(s) après fusion.`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    historyStatus.textContent = `Sauvegarde refusée : ${message}`;
+  } finally {
+    backupInput.value = '';
+  }
+});
+
+eraseHistoryButton.addEventListener('click', async () => {
+  if (!window.confirm('Effacer tous les snapshots locaux de Portfolio Dashboard sur cet appareil ?')) return;
+  try {
+    await eraseHistorySnapshots();
+    await refreshHistory('Historique local effacé.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    historyStatus.textContent = `Échec de l’effacement : ${message}`;
+  }
+});
+
+void refreshHistory();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

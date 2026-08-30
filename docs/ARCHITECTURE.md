@@ -13,13 +13,15 @@ Trade Republic PDF + CSV
    browser memory
         |
         +--> parser / ledger / analytics
+        |          |
+        |          +--> optional derived snapshot --> IndexedDB on this device
         |
         +--> dashboard
 
 No personal portfolio payload crosses the network boundary.
 ```
 
-The current foundation intentionally has no external `connect-src` permission and no persistence of imported personal data.
+Raw PDF/CSV bytes and the normalized transaction ledger are not persisted by the application. Snapshot persistence is explicit: the user must press `Enregistrer le snapshot`.
 
 ## Analytical scope
 
@@ -52,6 +54,14 @@ A market-data adapter will be added after the deterministic local core is accept
 
 ## Persistence
 
-Foundation behavior: in-memory only.
+IndexedDB stores only a versioned derived snapshot containing:
 
-A later persistence layer may store normalized snapshots in IndexedDB, but only after explicit backup/erase controls and a privacy review are implemented.
+- snapshot date and save timestamp;
+- current main / extended / total values;
+- simple economic P&L and selected XIRR root;
+- Trade Republic pocket totals;
+- main-position values and allocation weights.
+
+It does **not** store PDF/CSV bytes or the raw/normalized transaction history. Same-date saves deterministically replace the older save. Backup export/import uses an explicit versioned JSON schema; malformed or unsupported schemas are rejected rather than guessed.
+
+The browser database is a working local history, not a guaranteed backup. The UI therefore provides explicit export, import and erase controls. Snapshot-to-snapshot value changes are labelled as gross changes because they include contributions/withdrawals and are not portfolio returns.
