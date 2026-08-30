@@ -65,8 +65,22 @@ async function extractLayoutText(file: File): Promise<string> {
   return pages.join('\n');
 }
 
-function summaryValue(text: string, label: string): number {
-  const match = text.match(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+([\\d.,]+)(?:\\s+EUR)?\\s*$`, 'mi'));
+function extractSummaryBlock(text: string): string {
+  const headingIndex = text.search(/ÉTAT DU PATRIMOINE NET/i);
+  if (headingIndex < 0) throw new Error('Missing ÉTAT DU PATRIMOINE NET section in Net Worth PDF.');
+
+  const fromHeading = text.slice(headingIndex);
+  const totalMatch = fromHeading.match(/^TOTAL\s+[\d.,]+(?:\s+EUR)?\s*$/mi);
+  if (!totalMatch || totalMatch.index == null) {
+    throw new Error('Could not delimit the Net Worth summary table.');
+  }
+
+  return fromHeading.slice(0, totalMatch.index + totalMatch[0].length);
+}
+
+function summaryValue(summaryBlock: string, label: string): number {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = summaryBlock.match(new RegExp(`^${escaped}\\s+([\\d.,]+)(?:\\s+EUR)?\\s*$`, 'mi'));
   if (!match?.[1]) throw new Error(`Missing Net Worth summary field: ${label}`);
   return parseFrenchNumber(match[1]);
 }
@@ -151,23 +165,25 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
     throw new Error('Could not find the snapshot date in the Net Worth PDF.');
   }
 
+  const summaryBlock = extractSummaryBlock(text);
   const summary: NetWorthSummary = {
-    compteTitres: summaryValue(text, 'Compte-Titres'),
-    nonCote: summaryValue(text, 'Non Coté'),
-    crypto: summaryValue(text, 'Wallet Crypto'),
-    cash: summaryValue(text, 'Espèces'),
-    pea: summaryValue(text, "Plan d'Épargne en Actions"),
-    total: summaryValue(text, 'TOTAL'),
+    compteTitres: summaryValue(summaryBlock, 'Compte-Titres'),
+    nonCote: summaryValue(summaryBlock, 'Non Coté'),
+    crypto: summaryValue(summaryBlock, 'Wallet Crypto'),
+    cash: summaryValue(summaryBlock, 'Espèces'),
+    pea: summaryValue(summaryBlock, "Plan d'Épargne en Actions"),
+    total: summaryValue(summaryBlock, 'TOTAL'),
   };
+
+  const identity = summary.compteTitres + summary.nonCote + summary.crypto + summary.cash + summary.pea;
+  const identityDelta = identity - summary.total;
+  if (Math.abs(identityDelta) > 0.02) {
+    throw new Error(`Net Worth summary does not reconcile with TOTAL (delta ${identityDelta.toFixed(2)} EUR).`);
+  }
 
   const generated = text.match(/Généré le\s+(.+?)\s+Page/i)?.[1]?.trim() ?? null;
   const positions = parsePositions(text.split(/\r?\n/));
   const warnings: string[] = [];
-
-  const identity = summary.compteTitres + summary.nonCote + summary.crypto + summary.cash + summary.pea;
-  if (Math.abs(identity - summary.total) > 0.02) {
-    warnings.push(`Net worth identity differs from TOTAL by ${(identity - summary.total).toFixed(2)} EUR.`);
-  }
 
   if (positions.length === 0) {
     warnings.push('No position rows could be parsed from the PDF; headline values remain usable but allocation is unavailable.');
