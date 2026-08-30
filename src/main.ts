@@ -2,7 +2,7 @@ import './styles.css';
 import { analyzePortfolio } from './analytics';
 import { parseNetWorthPdf } from './net-worth';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
-import type { LedgerAudit, NetWorthSnapshot, PortfolioAnalysis, SnapshotPosition } from './domain';
+import type { LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -155,7 +155,8 @@ function renderQuality(audit: LedgerAudit, analysis: PortfolioAnalysis): HTMLEle
 function renderAnalysis(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot, audit: LedgerAudit): void {
   results.replaceChildren();
   const title = element('div', 'section-heading');
-  title.append(element('h2', undefined, `Snapshot ${analysis.snapshotDate}`), element('span', 'badge', analysis.mainXirr.status));
+  const qualityStatus = analysis.warnings.length > 0 ? 'WARN' : analysis.mainXirr.status;
+  title.append(element('h2', undefined, `Snapshot ${analysis.snapshotDate}`), element('span', 'badge', qualityStatus));
 
   const grid = element('div', 'metrics');
   grid.append(
