@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Personal Trade Republic data — never commit
+*.pdf
+*.csv
+portfolio-backup-*.json
+personal-data/
+imports/
+local-data/
+
+# Editor / OS
+.vscode/
+.idea/
