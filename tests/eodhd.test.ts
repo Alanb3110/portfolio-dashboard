@@ -34,9 +34,14 @@ describe('EODHD browser diagnostic', () => {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     }));
-    await expect(runEodhdDiagnostic(world, 'super-secret', '2026-08-01', '2026-08-30', fetchMock as typeof fetch))
-      .rejects.toThrow(/HTTP 401: Invalid API token/);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('super-secret');
+    try {
+      await runEodhdDiagnostic(world, 'super-secret', '2026-08-01', '2026-08-30', fetchMock as typeof fetch);
+      throw new Error('Expected diagnostic rejection.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toMatch(/HTTP 401: Invalid API token/);
+      expect(message).not.toContain('super-secret');
+    }
   });
 
   it('returns compact quality metadata for a successful response', async () => {
