@@ -44,14 +44,14 @@ const snapshot: NetWorthSnapshot = {
 };
 
 describe('XIRR', () => {
-  it('solves a simple one-year investment close to 10%', () => {
+  it('uses the frozen v4 365-day basis for a one-year investment', () => {
     const result = solveXirr([
       { date: '2025-01-01', amount: -1000 },
       { date: '2026-01-01', amount: 1100 },
     ]);
     expect(result.status).toBe('PASS');
     expect(result.selectedRoot).not.toBeNull();
-    expect(result.selectedRoot ?? 0).toBeCloseTo(0.1, 3);
+    expect(result.selectedRoot ?? 0).toBeCloseTo(0.1, 8);
     expect(Math.abs(result.residual ?? 1)).toBeLessThan(1e-6);
   });
 
