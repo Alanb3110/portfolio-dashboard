@@ -6,7 +6,8 @@ import type {
   XirrDiagnostics,
 } from './domain';
 
-const DAYS_PER_YEAR = 365.25;
+// Frozen v4 convention: XIRR uses actual calendar-day differences divided by 365.
+const XIRR_DAYS_PER_YEAR = 365;
 
 function daysBetween(a: string, b: string): number {
   const start = Date.parse(`${a}T00:00:00Z`);
@@ -32,7 +33,7 @@ export function xnpv(rate: number, flows: CashFlow[]): number {
   if (!first) return Number.NaN;
 
   return sorted.reduce((sum, flow) => {
-    const years = daysBetween(first.date, flow.date) / DAYS_PER_YEAR;
+    const years = daysBetween(first.date, flow.date) / XIRR_DAYS_PER_YEAR;
     return sum + flow.amount / Math.pow(1 + rate, years);
   }, 0);
 }
