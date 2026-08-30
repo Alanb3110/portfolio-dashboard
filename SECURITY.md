@@ -21,9 +21,11 @@ Portfolio Dashboard processes financial exports and therefore treats imported da
 - Exported backup files are sensitive personal financial data and must not be committed to this repository.
 - No analytics, trackers or third-party scripts are allowed.
 - No user-derived string is rendered through `innerHTML`.
-- The current Content Security Policy permits network connections only to the application origin.
-- External market access must be introduced through an explicitly reviewed adapter.
-- A market endpoint must not accept portfolio quantities, values, transaction rows or files.
+- External market access is explicit and limited to reviewed adapters.
+- The current Content Security Policy allows connections only to the app origin and `https://eodhd.com` for the opt-in benchmark diagnostic.
+- The EODHD diagnostic token is entered by the user, kept in page memory only, and is not written to IndexedDB/localStorage by Portfolio Dashboard.
+- The EODHD diagnostic requests only the two fixed public symbols `EUNL.XETRA` and `SXR8.XETRA` over a coarse public date range.
+- A market endpoint must never receive portfolio quantities, values, transaction rows or imported files.
 
 ## Storage limitations
 
