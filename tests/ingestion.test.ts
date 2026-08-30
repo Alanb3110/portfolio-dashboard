@@ -43,6 +43,17 @@ describe('Net Worth parser', () => {
     expect(snapshot.summary.compteTitres).not.toBe(523092902);
   });
 
+  it('does not warn when only non-listed positions lack market identifiers', () => {
+    const withoutPrivateIsins = pdfText
+      .replace('ISIN: LU3176111881\n', '')
+      .replace('ISIN: LU3170240538\n', '');
+    const snapshot = parseNetWorthText(withoutPrivateIsins);
+    const privatePositions = snapshot.positions.filter((position) => position.pocket === 'Non cote');
+    expect(privatePositions).toHaveLength(2);
+    expect(privatePositions.every((position) => position.symbol == null)).toBe(true);
+    expect(snapshot.warnings).toEqual([]);
+  });
+
   it('fails closed when the summary buckets do not reconcile with TOTAL', () => {
     const corrupted = pdfText.replace('TOTAL 8332,53 EUR', 'TOTAL 9000,00 EUR');
     expect(() => parseNetWorthText(corrupted)).toThrow(/does not reconcile/i);
