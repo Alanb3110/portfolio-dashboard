@@ -203,8 +203,14 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
       }
     }
 
-    const missingSymbols = positions.filter((position) => position.symbol == null).length;
-    if (missingSymbols > 0) warnings.push(`${missingSymbols} parsed position(s) have no ISIN/ticker.`);
+    // Market identifiers are required for the main and crypto pockets only.
+    // Non-listed assets are informational and intentionally excluded from performance/benchmark market-data lookups.
+    const missingMarketSymbols = positions.filter(
+      (position) => position.pocket !== 'Non cote' && position.symbol == null,
+    ).length;
+    if (missingMarketSymbols > 0) {
+      warnings.push(`${missingMarketSymbols} market-relevant parsed position(s) have no ISIN/ticker.`);
+    }
   }
 
   return {
