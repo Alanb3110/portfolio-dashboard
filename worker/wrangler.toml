@@ -1,0 +1,10 @@
+name = "portfolio-market-proxy"
+main = "src/index.js"
+compatibility_date = "2026-08-30"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://alanb3110.github.io"
+
+# EODHD_API_TOKEN must be configured as a Cloudflare secret.
+# Never commit it to this file or to GitHub.
