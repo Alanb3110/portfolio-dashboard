@@ -21,7 +21,11 @@ const health = await worker.fetch(
 );
 assert.equal(health.status, 200);
 assert.equal(health.headers.get('Access-Control-Allow-Origin'), env.ALLOWED_ORIGIN);
-assert.deepEqual(await health.json(), { ok: true });
+assert.deepEqual(await health.json(), {
+  ok: true,
+  service: 'portfolio-market-proxy',
+  version: '2026-09-05',
+});
 
 const blocked = await worker.fetch(
   new Request('https://proxy.example/prices?benchmark=msci-world&from=2026-08-01&to=2026-08-30', {
