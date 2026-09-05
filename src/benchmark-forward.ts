@@ -54,8 +54,6 @@ export function forwardBenchmarkRequestWindow(
   if (!isIsoDate(baselineDate) || !isIsoDate(snapshotDate) || baselineDate > snapshotDate) {
     throw new Error('Invalid forward benchmark date range.');
   }
-  // Seven calendar days are enough to resolve a weekend/ordinary exchange-holiday baseline
-  // without requesting any pre-v5 portfolio transaction history.
   return { from: shiftUtcDays(baselineDate, -7), to: snapshotDate };
 }
 
@@ -66,8 +64,6 @@ export function checkpointBenchmarkRequestWindow(
   if (!isIsoDate(checkpointDate) || !isIsoDate(snapshotDate) || checkpointDate > snapshotDate) {
     throw new Error('Invalid benchmark checkpoint date range.');
   }
-  // Checkpoint units already encode every matched flow through checkpointDate, so no older
-  // benchmark price is required. Starting exactly at the checkpoint keeps requests bounded.
   return { from: checkpointDate, to: snapshotDate };
 }
 
@@ -132,6 +128,51 @@ function preparePrices(
   return { byDate, priceDates: [...byDate.keys()].sort(), ignoredFuture, invalid: null };
 }
 
+interface ResolvedFlowPrice {
+  flow: CashFlow;
+  priceDate: string;
+  price: number;
+  shiftedToNextClose: boolean;
+}
+
+function resolveFlowPrices(
+  flows: CashFlow[],
+  byDate: Map<string, number>,
+  priceDates: string[],
+  snapshotDate: string,
+): { resolved: ResolvedFlowPrice[]; missingFlowDates: string[]; shiftedCount: number } {
+  const resolved: ResolvedFlowPrice[] = [];
+  const missingFlowDates: string[] = [];
+  let shiftedCount = 0;
+
+  for (const flow of flows) {
+    if (Math.abs(flow.amount) <= 1e-12) continue;
+    const exactPrice = byDate.get(flow.date);
+    if (exactPrice != null) {
+      resolved.push({ flow, priceDate: flow.date, price: exactPrice, shiftedToNextClose: false });
+      continue;
+    }
+
+    // Causal session rule: a flow that occurs while Xetra has no close is executed at the
+    // first available close after the flow date, never at a prior close. The execution close
+    // must already exist by the terminal snapshot, otherwise the comparison remains N/A.
+    const nextPriceDate = priceDates.find((date) => date > flow.date && date <= snapshotDate) ?? null;
+    if (!nextPriceDate) {
+      missingFlowDates.push(flow.date);
+      continue;
+    }
+    const nextPrice = byDate.get(nextPriceDate);
+    if (nextPrice == null) {
+      missingFlowDates.push(flow.date);
+      continue;
+    }
+    shiftedCount += 1;
+    resolved.push({ flow, priceDate: nextPriceDate, price: nextPrice, shiftedToNextClose: true });
+  }
+
+  return { resolved, missingFlowDates, shiftedCount };
+}
+
 function allForwardFlows(
   baseline: ForwardBenchmarkBaseline,
   allMainFlows: CashFlow[],
@@ -185,15 +226,13 @@ export function replayBenchmarkFromBaseline(
   if (!terminalPriceDate) return invalidResult(benchmark, `No benchmark close exists on or before snapshot ${snapshotDate}.`, ignoredFuture);
 
   const futureFlows = allForwardFlows(baseline, allMainFlows, snapshotDate);
-  const missingFlowDates = futureFlows
-    .filter((flow) => Math.abs(flow.amount) > 1e-12 && !byDate.has(flow.date))
-    .map((flow) => flow.date);
-  if (missingFlowDates.length > 0) {
+  const flowPrices = resolveFlowPrices(futureFlows, byDate, priceDates, snapshotDate);
+  if (flowPrices.missingFlowDates.length > 0) {
     return invalidResult(
       benchmark,
-      `Missing exact-date benchmark prices for ${missingFlowDates.join(', ')}.`,
+      `No causal benchmark close is available on or after flow date(s) ${flowPrices.missingFlowDates.join(', ')} before snapshot ${snapshotDate}.`,
       ignoredFuture,
-      missingFlowDates,
+      flowPrices.missingFlowDates,
     );
   }
 
@@ -201,13 +240,12 @@ export function replayBenchmarkFromBaseline(
   const terminalPrice = byDate.get(terminalPriceDate)!;
   let units = baseline.mainValue / baselinePrice;
 
-  for (const flow of futureFlows) {
-    const price = byDate.get(flow.date)!;
-    units += -flow.amount / price;
+  for (const resolved of flowPrices.resolved) {
+    units += -resolved.flow.amount / resolved.price;
     if (units < -1e-10) {
       return invalidResult(
         benchmark,
-        `Matched withdrawal on ${flow.date} exceeds the synthetic benchmark value; negative benchmark units are not allowed.`,
+        `Matched withdrawal on ${resolved.flow.date} exceeds the synthetic benchmark value; negative benchmark units are not allowed.`,
         ignoredFuture,
       );
     }
@@ -223,6 +261,9 @@ export function replayBenchmarkFromBaseline(
     `Forward benchmark baseline: ${baseline.snapshotDate} at portfolio value ${baseline.mainValue.toFixed(2)} EUR.`,
   ];
   if (baselineUsesPriorClose) notes.push(`Baseline units use latest close on or before baseline: ${baselinePriceDate}.`);
+  if (flowPrices.shiftedCount > 0) {
+    notes.push(`${flowPrices.shiftedCount} cash-flow date(s) used the first available close after the flow date.`);
+  }
   if (terminalUsesPriorClose) notes.push(`Terminal value uses latest close on or before snapshot: ${terminalPriceDate}.`);
   if (ignoredFuture > 0) notes.push(`${ignoredFuture} future price point(s) were ignored to prevent look-ahead.`);
   if (xirr.status !== 'PASS') notes.push(`Benchmark XIRR: ${xirr.note}`);
@@ -301,26 +342,23 @@ export function replayBenchmarkFromCheckpoint(
   const newFlows = allForwardFlows(baseline, allMainFlows, snapshotDate).filter(
     (flow) => flow.date > checkpoint.asOfDate,
   );
-  const missingFlowDates = newFlows
-    .filter((flow) => Math.abs(flow.amount) > 1e-12 && !byDate.has(flow.date))
-    .map((flow) => flow.date);
-  if (missingFlowDates.length > 0) {
+  const flowPrices = resolveFlowPrices(newFlows, byDate, priceDates, snapshotDate);
+  if (flowPrices.missingFlowDates.length > 0) {
     return invalidResult(
       benchmark,
-      `Missing exact-date benchmark prices for ${missingFlowDates.join(', ')}.`,
+      `No causal benchmark close is available on or after flow date(s) ${flowPrices.missingFlowDates.join(', ')} before snapshot ${snapshotDate}.`,
       ignoredFuture,
-      missingFlowDates,
+      flowPrices.missingFlowDates,
     );
   }
 
   let units = checkpoint.units;
-  for (const flow of newFlows) {
-    const price = byDate.get(flow.date)!;
-    units += -flow.amount / price;
+  for (const resolved of flowPrices.resolved) {
+    units += -resolved.flow.amount / resolved.price;
     if (units < -1e-10) {
       return invalidResult(
         benchmark,
-        `Matched withdrawal on ${flow.date} exceeds the synthetic benchmark value; negative benchmark units are not allowed.`,
+        `Matched withdrawal on ${resolved.flow.date} exceeds the synthetic benchmark value; negative benchmark units are not allowed.`,
         ignoredFuture,
       );
     }
@@ -332,6 +370,9 @@ export function replayBenchmarkFromCheckpoint(
   const xirr = benchmarkXirr(baseline, allMainFlows, snapshotDate, terminalValue);
   const terminalUsesPriorClose = terminalPriceDate < snapshotDate;
   const notes = [`Advanced local benchmark checkpoint from ${checkpoint.asOfDate}.`];
+  if (flowPrices.shiftedCount > 0) {
+    notes.push(`${flowPrices.shiftedCount} cash-flow date(s) used the first available close after the flow date.`);
+  }
   if (terminalUsesPriorClose) notes.push(`Terminal value uses latest close on or before snapshot: ${terminalPriceDate}.`);
   if (ignoredFuture > 0) notes.push(`${ignoredFuture} future price point(s) were ignored to prevent look-ahead.`);
   if (xirr.status !== 'PASS') notes.push(`Benchmark XIRR: ${xirr.note}`);
