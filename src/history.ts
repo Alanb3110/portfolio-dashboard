@@ -1,3 +1,5 @@
+import type { BenchmarkId } from './benchmark';
+import type { ForwardBenchmarkCheckpoint } from './benchmark-forward';
 import type { NetWorthSnapshot, NetWorthSummary, PortfolioAnalysis } from './domain';
 
 export const HISTORY_SCHEMA_VERSION = 2 as const;
@@ -32,6 +34,7 @@ export interface HistorySnapshot {
   mainXirr: number | null;
   summary: NetWorthSummary;
   mainPositions: HistoryPosition[];
+  benchmarkCheckpoints: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>;
 }
 
 export interface HistoryBackup {
@@ -55,6 +58,18 @@ export interface SnapshotComparison {
 function finite(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Invalid ${label}.`);
   return value;
+}
+
+function nonNegativeFinite(value: unknown, label: string): number {
+  const parsed = finite(value, label);
+  if (parsed < 0) throw new Error(`Invalid ${label}.`);
+  return parsed;
+}
+
+function positiveFinite(value: unknown, label: string): number {
+  const parsed = finite(value, label);
+  if (parsed <= 0) throw new Error(`Invalid ${label}.`);
+  return parsed;
 }
 
 function nullableFinite(value: unknown, label: string): number | null {
@@ -135,6 +150,73 @@ function positionFromUnknown(value: unknown): HistoryPosition {
   };
 }
 
+function checkpointFromUnknown(value: unknown, benchmarkId: BenchmarkId): ForwardBenchmarkCheckpoint {
+  if (typeof value !== 'object' || value == null) throw new Error(`Invalid ${benchmarkId} benchmark checkpoint.`);
+  const object = value as Record<string, unknown>;
+  const method = text(object.method, `${benchmarkId}.method`);
+  if (method !== 'forward-matched-flow-v1') throw new Error(`Unsupported ${benchmarkId} benchmark checkpoint method.`);
+  const storedBenchmarkId = text(object.benchmarkId, `${benchmarkId}.benchmarkId`);
+  if (storedBenchmarkId !== benchmarkId) throw new Error(`Invalid ${benchmarkId} benchmark checkpoint identity.`);
+  const baselineDate = isoDate(object.baselineDate, `${benchmarkId}.baselineDate`);
+  const asOfDate = isoDate(object.asOfDate, `${benchmarkId}.asOfDate`);
+  const terminalPriceDate = isoDate(object.terminalPriceDate, `${benchmarkId}.terminalPriceDate`);
+  if (baselineDate > asOfDate || terminalPriceDate > asOfDate) {
+    throw new Error(`Invalid ${benchmarkId} benchmark checkpoint dates.`);
+  }
+  return {
+    method,
+    benchmarkId,
+    baselineDate,
+    baselineMainValue: nonNegativeFinite(object.baselineMainValue, `${benchmarkId}.baselineMainValue`),
+    asOfDate,
+    units: nonNegativeFinite(object.units, `${benchmarkId}.units`),
+    terminalValue: nonNegativeFinite(object.terminalValue, `${benchmarkId}.terminalValue`),
+    terminalPriceDate,
+    terminalPrice: positiveFinite(object.terminalPrice, `${benchmarkId}.terminalPrice`),
+  };
+}
+
+function benchmarkCheckpointsFromUnknown(
+  value: unknown,
+): Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> {
+  if (value == null) return {};
+  if (typeof value !== 'object') throw new Error('Invalid benchmarkCheckpoints.');
+  const object = value as Record<string, unknown>;
+  const allowed = new Set<BenchmarkId>(['msci-world', 'sp500']);
+  for (const key of Object.keys(object)) {
+    if (!allowed.has(key as BenchmarkId)) throw new Error(`Unknown benchmark checkpoint: ${key}.`);
+  }
+  const result: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> = {};
+  for (const benchmarkId of allowed) {
+    if (object[benchmarkId] != null) result[benchmarkId] = checkpointFromUnknown(object[benchmarkId], benchmarkId);
+  }
+  return result;
+}
+
+function laterCheckpoint(
+  a: ForwardBenchmarkCheckpoint | undefined,
+  b: ForwardBenchmarkCheckpoint | undefined,
+): ForwardBenchmarkCheckpoint | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  if (a.baselineDate !== b.baselineDate || Math.abs(a.baselineMainValue - b.baselineMainValue) > 0.005) {
+    return b.asOfDate >= a.asOfDate ? b : a;
+  }
+  return b.asOfDate >= a.asOfDate ? b : a;
+}
+
+function mergeBenchmarkCheckpoints(
+  a: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>,
+  b: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>,
+): Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> {
+  const result: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> = {};
+  for (const benchmarkId of ['msci-world', 'sp500'] as BenchmarkId[]) {
+    const checkpoint = laterCheckpoint(a[benchmarkId], b[benchmarkId]);
+    if (checkpoint) result[benchmarkId] = checkpoint;
+  }
+  return result;
+}
+
 function validateV2HistorySnapshot(object: Record<string, unknown>): HistorySnapshot {
   if (!Array.isArray(object.mainPositions)) throw new Error('Invalid mainPositions.');
   const snapshotDate = isoDate(object.snapshotDate, 'snapshotDate');
@@ -158,6 +240,7 @@ function validateV2HistorySnapshot(object: Record<string, unknown>): HistorySnap
     mainXirr: nullableFinite(object.mainXirr, 'mainXirr'),
     summary: summaryFromUnknown(object.summary),
     mainPositions: object.mainPositions.map(positionFromUnknown),
+    benchmarkCheckpoints: benchmarkCheckpointsFromUnknown(object.benchmarkCheckpoints),
   };
 }
 
@@ -175,6 +258,7 @@ export function validateHistorySnapshot(value: unknown): HistorySnapshot {
       ledgerFirstDate: null,
       ledgerLastDate: null,
       ledgerCutoffDate: snapshotDate,
+      benchmarkCheckpoints: {},
     });
   }
 
@@ -219,6 +303,7 @@ export function createHistorySnapshot(
     mainXirr: analysis.mainXirr.selectedRoot,
     summary: snapshot.summary,
     mainPositions,
+    benchmarkCheckpoints: {},
   });
 }
 
@@ -230,7 +315,13 @@ export function mergeHistorySnapshots(
   for (const raw of [...existing, ...incoming]) {
     const record = validateHistorySnapshot(raw);
     const previous = byDate.get(record.snapshotDate);
-    if (!previous || record.savedAt >= previous.savedAt) byDate.set(record.snapshotDate, record);
+    if (!previous) {
+      byDate.set(record.snapshotDate, record);
+      continue;
+    }
+    const winner = record.savedAt >= previous.savedAt ? record : previous;
+    const checkpoints = mergeBenchmarkCheckpoints(previous.benchmarkCheckpoints, record.benchmarkCheckpoints);
+    byDate.set(record.snapshotDate, { ...winner, benchmarkCheckpoints: checkpoints });
   }
   return [...byDate.values()].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
 }
@@ -333,6 +424,17 @@ function openHistoryDb(): Promise<IDBDatabase> {
   });
 }
 
+async function putHistorySnapshot(record: HistorySnapshot): Promise<void> {
+  const db = await openHistoryDb();
+  try {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    transaction.objectStore(STORE_NAME).put(record);
+    await transactionPromise(transaction);
+  } finally {
+    db.close();
+  }
+}
+
 export async function loadHistorySnapshots(): Promise<HistorySnapshot[]> {
   const db = await openHistoryDb();
   try {
@@ -346,14 +448,34 @@ export async function loadHistorySnapshots(): Promise<HistorySnapshot[]> {
 
 export async function saveHistorySnapshot(snapshot: HistorySnapshot): Promise<void> {
   const record = validateHistorySnapshot(snapshot);
-  const db = await openHistoryDb();
-  try {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    transaction.objectStore(STORE_NAME).put(record);
-    await transactionPromise(transaction);
-  } finally {
-    db.close();
+  const existing = (await loadHistorySnapshots()).find((candidate) => candidate.snapshotDate === record.snapshotDate);
+  const preserveCheckpoints = existing != null && Math.abs(existing.mainValue - record.mainValue) <= 0.005;
+  const mergedRecord = {
+    ...record,
+    benchmarkCheckpoints: preserveCheckpoints
+      ? mergeBenchmarkCheckpoints(existing.benchmarkCheckpoints, record.benchmarkCheckpoints)
+      : record.benchmarkCheckpoints,
+  };
+  await putHistorySnapshot(validateHistorySnapshot(mergedRecord));
+}
+
+export async function saveHistoryBenchmarkCheckpoint(
+  ownerSnapshotDate: string,
+  checkpoint: ForwardBenchmarkCheckpoint,
+): Promise<void> {
+  const validatedCheckpoint = checkpointFromUnknown(checkpoint, checkpoint.benchmarkId);
+  const existing = (await loadHistorySnapshots()).find((candidate) => candidate.snapshotDate === ownerSnapshotDate);
+  if (!existing) throw new Error(`Benchmark checkpoint owner snapshot ${ownerSnapshotDate} does not exist.`);
+  if (
+    validatedCheckpoint.baselineDate !== existing.snapshotDate ||
+    Math.abs(validatedCheckpoint.baselineMainValue - existing.mainValue) > 0.005
+  ) {
+    throw new Error('Benchmark checkpoint baseline does not match its owner snapshot.');
   }
+  const benchmarkCheckpoints = mergeBenchmarkCheckpoints(existing.benchmarkCheckpoints, {
+    [validatedCheckpoint.benchmarkId]: validatedCheckpoint,
+  });
+  await putHistorySnapshot(validateHistorySnapshot({ ...existing, benchmarkCheckpoints }));
 }
 
 export async function importHistorySnapshots(incoming: HistorySnapshot[]): Promise<HistorySnapshot[]> {
