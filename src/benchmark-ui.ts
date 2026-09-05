@@ -1,8 +1,22 @@
 import { forwardPortfolioXirr } from './analytics';
-import { BENCHMARKS, comparePortfolioToBenchmark, type BenchmarkComparison } from './benchmark';
-import { forwardBenchmarkRequestWindow, replayBenchmarkFromBaseline } from './benchmark-forward';
+import {
+  BENCHMARKS,
+  comparePortfolioToBenchmark,
+  type BenchmarkComparison,
+  type BenchmarkDefinition,
+  type BenchmarkReplayResult,
+} from './benchmark';
+import {
+  checkpointBenchmarkRequestWindow,
+  checkpointFromReplay,
+  forwardBenchmarkRequestWindow,
+  replayBenchmarkFromBaseline,
+  replayBenchmarkFromCheckpoint,
+  type ForwardBenchmarkBaseline,
+  type ForwardBenchmarkCheckpoint,
+} from './benchmark-forward';
 import type { CashFlow, PortfolioAnalysis } from './domain';
-import type { HistorySnapshot } from './history';
+import { saveHistoryBenchmarkCheckpoint, type HistorySnapshot } from './history';
 import { fetchMarketProxyPrices } from './providers/market-proxy';
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -54,6 +68,63 @@ function earliestBaseline(snapshots: HistorySnapshot[], currentDate: string): Hi
   return [...snapshots]
     .filter((snapshot) => snapshot.snapshotDate <= currentDate)
     .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate))[0] ?? null;
+}
+
+function latestCompatibleCheckpoint(
+  snapshots: HistorySnapshot[],
+  benchmark: BenchmarkDefinition,
+  baseline: ForwardBenchmarkBaseline,
+  currentDate: string,
+): ForwardBenchmarkCheckpoint | null {
+  return snapshots
+    .map((snapshot) => snapshot.benchmarkCheckpoints[benchmark.id])
+    .filter((checkpoint): checkpoint is ForwardBenchmarkCheckpoint => checkpoint != null)
+    .filter(
+      (checkpoint) =>
+        checkpoint.benchmarkId === benchmark.id &&
+        checkpoint.baselineDate === baseline.snapshotDate &&
+        Math.abs(checkpoint.baselineMainValue - baseline.mainValue) <= 0.005 &&
+        checkpoint.asOfDate <= currentDate,
+    )
+    .sort((a, b) => b.asOfDate.localeCompare(a.asOfDate))[0] ?? null;
+}
+
+async function replayForwardBenchmark(
+  benchmark: BenchmarkDefinition,
+  baseline: ForwardBenchmarkBaseline,
+  historySnapshots: HistorySnapshot[],
+  mainFlows: CashFlow[],
+  snapshotDate: string,
+): Promise<BenchmarkReplayResult> {
+  const checkpoint = latestCompatibleCheckpoint(historySnapshots, benchmark, baseline, snapshotDate);
+  if (checkpoint?.asOfDate === snapshotDate) {
+    return replayBenchmarkFromCheckpoint(benchmark, baseline, checkpoint, mainFlows, snapshotDate, []);
+  }
+
+  const window = checkpoint
+    ? checkpointBenchmarkRequestWindow(checkpoint.asOfDate, snapshotDate)
+    : forwardBenchmarkRequestWindow(baseline.snapshotDate, snapshotDate);
+  const prices = await fetchMarketProxyPrices(benchmark, window.from, window.to);
+  return checkpoint
+    ? replayBenchmarkFromCheckpoint(benchmark, baseline, checkpoint, mainFlows, snapshotDate, prices)
+    : replayBenchmarkFromBaseline(benchmark, baseline, mainFlows, snapshotDate, prices);
+}
+
+async function persistCheckpoint(
+  ownerSnapshotDate: string,
+  baseline: ForwardBenchmarkBaseline,
+  snapshotDate: string,
+  replay: BenchmarkReplayResult,
+): Promise<boolean> {
+  const checkpoint = checkpointFromReplay(baseline, snapshotDate, replay);
+  if (!checkpoint) return true;
+  try {
+    await saveHistoryBenchmarkCheckpoint(ownerSnapshotDate, checkpoint);
+    return true;
+  } catch {
+    // Benchmark display must remain available if local checkpoint persistence fails.
+    return false;
+  }
 }
 
 function benchmarkCard(comparison: BenchmarkComparison, periodDays: number): HTMLElement {
@@ -112,10 +183,25 @@ export function renderForwardBenchmarkPanel(
 
   void (async () => {
     try {
-      const window = forwardBenchmarkRequestWindow(baseline.snapshotDate, analysis.snapshotDate);
-      const [worldPrices, sp500Prices] = await Promise.all([
-        fetchMarketProxyPrices(BENCHMARKS['msci-world'], window.from, window.to),
-        fetchMarketProxyPrices(BENCHMARKS.sp500, window.from, window.to),
+      const forwardBaseline: ForwardBenchmarkBaseline = {
+        snapshotDate: baseline.snapshotDate,
+        mainValue: baseline.mainValue,
+      };
+      const [worldReplay, sp500Replay] = await Promise.all([
+        replayForwardBenchmark(
+          BENCHMARKS['msci-world'],
+          forwardBaseline,
+          historySnapshots,
+          mainFlows,
+          analysis.snapshotDate,
+        ),
+        replayForwardBenchmark(
+          BENCHMARKS.sp500,
+          forwardBaseline,
+          historySnapshots,
+          mainFlows,
+          analysis.snapshotDate,
+        ),
       ]);
 
       const actualForwardXirr = forwardPortfolioXirr(
@@ -124,20 +210,6 @@ export function renderForwardBenchmarkPanel(
         mainFlows,
         analysis.snapshotDate,
         analysis.mainValue,
-      );
-      const worldReplay = replayBenchmarkFromBaseline(
-        BENCHMARKS['msci-world'],
-        baseline,
-        mainFlows,
-        analysis.snapshotDate,
-        worldPrices,
-      );
-      const sp500Replay = replayBenchmarkFromBaseline(
-        BENCHMARKS.sp500,
-        baseline,
-        mainFlows,
-        analysis.snapshotDate,
-        sp500Prices,
       );
 
       const world = comparePortfolioToBenchmark(
@@ -162,10 +234,16 @@ export function renderForwardBenchmarkPanel(
       );
       output.replaceChildren(grid);
 
+      const persisted = await Promise.all([
+        persistCheckpoint(baseline.snapshotDate, forwardBaseline, analysis.snapshotDate, worldReplay),
+        persistCheckpoint(baseline.snapshotDate, forwardBaseline, analysis.snapshotDate, sp500Replay),
+      ]);
+
       const statuses = [world.status, sp500.status];
+      const checkpointNote = persisted.every(Boolean) ? '' : ' · checkpoint local non enregistré';
       status.textContent = statuses.every((value) => value === 'PASS')
-        ? `PASS · comparaison depuis le ${baseline.snapshotDate}`
-        : `Comparaison disponible avec limitation : World ${world.status}, S&P 500 ${sp500.status}.`;
+        ? `PASS · comparaison depuis le ${baseline.snapshotDate}${checkpointNote}`
+        : `Comparaison disponible avec limitation : World ${world.status}, S&P 500 ${sp500.status}${checkpointNote}.`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       output.replaceChildren();
