@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { analyzePortfolio } from '../src/analytics';
 import type { LedgerRow, NetWorthSnapshot } from '../src/domain';
 import { reconcileMainPositionQuantities } from '../src/reconciliation';
 
@@ -94,6 +95,16 @@ describe('main ledger ↔ snapshot quantity reconciliation', () => {
     expect(result.status).toBe('FAIL');
     expect(result.items[0]?.delta).toBe(1);
     expect(result.note).toMatch(/1 main position quantity mismatch/i);
+  });
+
+  it('surfaces a failed reconciliation in portfolio analysis warnings', () => {
+    const analysis = analyzePortfolio(
+      [quantityRow()],
+      snapshot([
+        { pocket: 'PEA', name: 'Synthetic', symbol: 'TEST', shares: 9, price: 100, value: 900 },
+      ]),
+    );
+    expect(analysis.warnings.some((warning) => warning.startsWith('Main position reconciliation FAIL.'))).toBe(true);
   });
 
   it('ignores quantity changes occurring after the snapshot date', () => {
