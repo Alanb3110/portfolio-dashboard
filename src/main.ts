@@ -14,8 +14,11 @@ import {
   type HistorySnapshot,
 } from './history';
 import { parseNetWorthPdf } from './net-worth';
+import { selectLatestTradeRepublicSources, sourcePairFingerprint } from './source-refresh';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
+
+const LAST_SOURCE_FINGERPRINT_KEY = 'portfolio-dashboard-v5:last-source-fingerprint';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -70,6 +73,22 @@ function metric(label: string, value: string, subtext?: string): HTMLElement {
   return card;
 }
 
+function readLastSourceFingerprint(): string | null {
+  try {
+    return localStorage.getItem(LAST_SOURCE_FINGERPRINT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSourceFingerprint(value: string): void {
+  try {
+    localStorage.setItem(LAST_SOURCE_FINGERPRINT_KEY, value);
+  } catch {
+    // Fingerprint persistence is only a convenience; analysis must not depend on it.
+  }
+}
+
 let currentAnalysis: PortfolioAnalysis | null = null;
 let currentSnapshot: NetWorthSnapshot | null = null;
 let currentAudit: LedgerAudit | null = null;
@@ -100,7 +119,24 @@ privacy.append(
 );
 
 const importSection = element('section', 'panel');
-importSection.append(element('h2', undefined, 'Importer les sources'));
+importSection.append(
+  element('h2', undefined, 'Importer les sources'),
+  element(
+    'p',
+    'muted-block',
+    'Sur iPhone, « Actualiser depuis le dossier » permet de sélectionner Portfolio Dashboard une seule fois par actualisation ; l’app choisit ensuite automatiquement les exports Trade Republic les plus récents du dossier.',
+  ),
+);
+
+const folderRefreshButton = element('button', 'primary-button', 'Actualiser depuis le dossier') as HTMLButtonElement;
+folderRefreshButton.type = 'button';
+const folderInput = document.createElement('input');
+folderInput.type = 'file';
+folderInput.multiple = true;
+folderInput.setAttribute('webkitdirectory', '');
+folderInput.hidden = true;
+
+const manualHeading = element('h3', 'subheading', 'Ou sélectionner les fichiers manuellement');
 const formGrid = element('div', 'file-grid');
 
 const csvLabel = element('label', 'file-card');
@@ -118,10 +154,10 @@ pdfInput.accept = '.pdf,application/pdf';
 pdfLabel.append(pdfInput);
 
 formGrid.append(csvLabel, pdfLabel);
-const analyzeButton = element('button', 'primary-button', 'Analyser') as HTMLButtonElement;
+const analyzeButton = element('button', 'secondary-button', 'Analyser les fichiers sélectionnés') as HTMLButtonElement;
 analyzeButton.type = 'button';
-const status = element('p', 'status', 'Sélectionne les deux fichiers pour commencer.');
-importSection.append(formGrid, analyzeButton, status);
+const status = element('p', 'status', 'Actualise depuis le dossier ou sélectionne les deux fichiers manuellement.');
+importSection.append(folderRefreshButton, folderInput, manualHeading, formGrid, analyzeButton, status);
 
 const historySection = element('section', 'panel');
 historySection.append(
@@ -163,6 +199,11 @@ function setHistoryControls(): void {
   exportBackupButton.disabled = !historyAvailable || historySnapshots.length === 0;
   importBackupButton.disabled = !historyAvailable;
   eraseHistoryButton.disabled = !historyAvailable || historySnapshots.length === 0;
+}
+
+function setAnalysisBusy(busy: boolean): void {
+  analyzeButton.disabled = busy;
+  folderRefreshButton.disabled = busy;
 }
 
 function renderHistoryList(): void {
@@ -322,16 +363,9 @@ function rerenderCurrentAnalysis(): void {
   renderAnalysis(currentAnalysis, currentSnapshot, currentAudit, currentMainFlows);
 }
 
-analyzeButton.addEventListener('click', async () => {
-  const csvFile = csvInput.files?.[0];
-  const pdfFile = pdfInput.files?.[0];
-  if (!csvFile || !pdfFile) {
-    status.textContent = 'Les deux fichiers sont requis.';
-    return;
-  }
-
-  analyzeButton.disabled = true;
-  status.textContent = 'Analyse locale en cours…';
+async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): Promise<void> {
+  setAnalysisBusy(true);
+  status.textContent = `Analyse locale en cours… ${csvFile.name} + ${pdfFile.name}`;
   results.hidden = true;
 
   try {
@@ -347,7 +381,8 @@ analyzeButton.addEventListener('click', async () => {
     currentMainFlows = flows;
     await refreshHistory();
     renderAnalysis(analysis, snapshot, audit, flows);
-    status.textContent = 'Analyse terminée. Les fichiers bruts n’ont pas quitté cet appareil et ne sont pas sauvegardés.';
+    if (fingerprint) writeLastSourceFingerprint(fingerprint);
+    status.textContent = `Analyse terminée avec ${csvFile.name} + ${pdfFile.name}. Les fichiers bruts n’ont pas quitté cet appareil.`;
   } catch (error) {
     currentAnalysis = null;
     currentSnapshot = null;
@@ -357,7 +392,52 @@ analyzeButton.addEventListener('click', async () => {
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
   } finally {
-    analyzeButton.disabled = false;
+    setAnalysisBusy(false);
+  }
+}
+
+folderRefreshButton.addEventListener('click', () => {
+  folderInput.click();
+});
+
+folderInput.addEventListener('change', async () => {
+  const files = [...(folderInput.files ?? [])];
+  if (files.length === 0) return;
+
+  try {
+    const pair = selectLatestTradeRepublicSources(files);
+    status.textContent = `Vérification de ${pair.csv.name} + ${pair.pdf.name}…`;
+    const fingerprint = await sourcePairFingerprint(pair);
+    const unchanged = readLastSourceFingerprint() === fingerprint;
+
+    if (unchanged && currentAnalysis != null) {
+      status.textContent = `Aucun nouvel export détecté : ${pair.csv.name} + ${pair.pdf.name} sont identiques à la dernière analyse.`;
+      return;
+    }
+
+    await runAnalysis(pair.csv, pair.pdf, fingerprint);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    status.textContent = `Actualisation impossible : ${message}`;
+  } finally {
+    folderInput.value = '';
+  }
+});
+
+analyzeButton.addEventListener('click', async () => {
+  const csvFile = csvInput.files?.[0];
+  const pdfFile = pdfInput.files?.[0];
+  if (!csvFile || !pdfFile) {
+    status.textContent = 'Les deux fichiers sont requis.';
+    return;
+  }
+
+  try {
+    const fingerprint = await sourcePairFingerprint({ csv: csvFile, pdf: pdfFile });
+    await runAnalysis(csvFile, pdfFile, fingerprint);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    status.textContent = `Échec de préparation des fichiers : ${message}`;
   }
 });
 
