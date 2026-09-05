@@ -30,6 +30,20 @@ Canonical main performance cash flows include:
 
 The sign from the Trade Republic export is preserved: investments are normally negative and withdrawals/distributions positive.
 
+## Position quantity reconciliation
+
+The main portfolio ledger is reconciled against the official Net Worth positions at the snapshot date.
+
+Quantity-bearing rows are:
+
+- BUY / SELL;
+- DELIVERY MIGRATION / FREE_RECEIPT;
+- CORPORATE_ACTION SPLIT.
+
+Signed `shares` are summed independently for each `(pocket, symbol)` identity, where `pocket` distinguishes PEA from Compte-titres. The resulting quantity is compared with the official snapshot quantity using an absolute tolerance of at least `1e-6` unit.
+
+A material mismatch produces a `FAIL` reconciliation warning. Transactions after the snapshot date are excluded from this reconciliation by the same temporal cutoff rule used for performance.
+
 ## Current main value
 
 `main_value = Compte-Titres + PEA`
