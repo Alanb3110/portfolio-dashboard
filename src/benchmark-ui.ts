@@ -16,7 +16,8 @@ import {
   type ForwardBenchmarkCheckpoint,
 } from './benchmark-forward';
 import type { CashFlow, PortfolioAnalysis } from './domain';
-import { saveHistoryBenchmarkCheckpoint, type HistorySnapshot } from './history';
+import { persistBenchmarkObservation } from './history-benchmark-observations';
+import type { HistorySnapshot } from './history';
 import { fetchMarketProxyPrices } from './providers/market-proxy';
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -111,20 +112,15 @@ async function replayForwardBenchmark(
 }
 
 async function persistCheckpoint(
-  ownerSnapshotDate: string,
+  baselineOwnerSnapshotDate: string,
+  observationSnapshotDate: string,
   baseline: ForwardBenchmarkBaseline,
   snapshotDate: string,
   replay: BenchmarkReplayResult,
 ): Promise<boolean> {
   const checkpoint = checkpointFromReplay(baseline, snapshotDate, replay);
   if (!checkpoint) return true;
-  try {
-    await saveHistoryBenchmarkCheckpoint(ownerSnapshotDate, checkpoint);
-    return true;
-  } catch {
-    // Benchmark display must remain available if local checkpoint persistence fails.
-    return false;
-  }
+  return persistBenchmarkObservation(baselineOwnerSnapshotDate, observationSnapshotDate, checkpoint);
 }
 
 function benchmarkCard(comparison: BenchmarkComparison, periodDays: number): HTMLElement {
@@ -235,8 +231,20 @@ export function renderForwardBenchmarkPanel(
       output.replaceChildren(grid);
 
       const persisted = await Promise.all([
-        persistCheckpoint(baseline.snapshotDate, forwardBaseline, analysis.snapshotDate, worldReplay),
-        persistCheckpoint(baseline.snapshotDate, forwardBaseline, analysis.snapshotDate, sp500Replay),
+        persistCheckpoint(
+          baseline.snapshotDate,
+          analysis.snapshotDate,
+          forwardBaseline,
+          analysis.snapshotDate,
+          worldReplay,
+        ),
+        persistCheckpoint(
+          baseline.snapshotDate,
+          analysis.snapshotDate,
+          forwardBaseline,
+          analysis.snapshotDate,
+          sp500Replay,
+        ),
       ]);
 
       const statuses = [world.status, sp500.status];
