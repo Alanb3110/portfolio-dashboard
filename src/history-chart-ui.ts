@@ -1,3 +1,4 @@
+import { backfillBenchmarkObservations } from './history-benchmark-observations';
 import { buildHistoryChartSeries, type HistoryChartPoint } from './history-chart';
 import { loadHistorySnapshots } from './history';
 
@@ -169,6 +170,7 @@ function findBenchmarkPanel(results: HTMLElement): HTMLElement | null {
 }
 
 async function renderHistoryPanel(panel: HTMLElement): Promise<void> {
+  await backfillBenchmarkObservations();
   const snapshots = await loadHistorySnapshots();
   const points = buildHistoryChartSeries(snapshots);
   panel.replaceChildren(element('h2', undefined, 'Évolution historique'));
