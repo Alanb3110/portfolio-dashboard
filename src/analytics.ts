@@ -194,7 +194,9 @@ export function analyzePortfolio(
   snapshot: NetWorthSnapshot,
 ): PortfolioAnalysis {
   const mainValue = snapshot.summary.compteTitres + snapshot.summary.pea;
-  const flows = mainCashFlows(ledger);
+  const applicableLedger = ledger.filter((row) => row.date <= snapshot.snapshotDate);
+  const futureRows = ledger.filter((row) => row.date > snapshot.snapshotDate);
+  const flows = mainCashFlows(applicableLedger);
   const xirr = solveXirr([
     ...flows,
     { date: snapshot.snapshotDate, amount: mainValue },
@@ -202,6 +204,12 @@ export function analyzePortfolio(
   const canonicalCashflowSum = flows.reduce((sum, flow) => sum + flow.amount, 0);
 
   const warnings = [...snapshot.warnings];
+  if (futureRows.length > 0) {
+    const latestFutureDate = [...futureRows].sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? 'unknown';
+    warnings.push(
+      `${futureRows.length} transaction row(s) after snapshot ${snapshot.snapshotDate} were ignored to prevent look-ahead (latest ${latestFutureDate}).`,
+    );
+  }
   if (xirr.status !== 'PASS') warnings.push(`Main XIRR status: ${xirr.status}. ${xirr.note}`);
 
   return {
@@ -211,7 +219,7 @@ export function analyzePortfolio(
     totalNetWorth: snapshot.summary.total,
     simpleEconomicPnl: mainValue + canonicalCashflowSum,
     mainXirr: xirr,
-    transactionCount: ledger.length,
+    transactionCount: applicableLedger.length,
     positionCount: snapshot.positions.length,
     warnings,
   };
