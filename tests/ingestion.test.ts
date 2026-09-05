@@ -23,6 +23,21 @@ describe('Trade Republic CSV parser', () => {
     expect(audit.mainBuySellRows).toBe(1);
     expect(audit.mainRequiredMarketFieldsComplete).toBe(1);
   });
+
+  it('fails closed on duplicate transaction identifiers', () => {
+    const duplicate = csv.replace('Dividend,tx-2', 'Dividend,tx-1');
+    expect(() => auditLedger(normalizeLedger(parseTransactions(duplicate)))).toThrow(/duplicate transaction_id/i);
+  });
+
+  it('fails closed on invalid transaction dates', () => {
+    const invalidDate = csv.replace('2025-06-01,PEA,CASH', '2025-13-40,PEA,CASH');
+    expect(() => auditLedger(normalizeLedger(parseTransactions(invalidDate)))).toThrow(/invalid date/i);
+  });
+
+  it('fails closed when a canonical main cash flow is not denominated in EUR', () => {
+    const nonEur = csv.replace(',-1000,-1,,EUR,', ',-1000,-1,,USD,');
+    expect(() => auditLedger(normalizeLedger(parseTransactions(nonEur)))).toThrow(/not denominated in EUR/i);
+  });
 });
 
 describe('Net Worth parser', () => {
@@ -62,6 +77,24 @@ describe('Net Worth parser', () => {
     expect(privatePositions).toHaveLength(2);
     expect(privatePositions.every((position) => position.symbol == null)).toBe(true);
     expect(snapshot.warnings).toEqual([]);
+  });
+
+  it('warns when a non-zero pocket has no parsed position rows', () => {
+    const withoutPeaRows = pdfText.replace(
+      /PLAN D'ÉPARGNE EN ACTIONS\n[\s\S]*?NOMBRE DE POSITIONS : 4\n/,
+      "PLAN D'ÉPARGNE EN ACTIONS\nNOMBRE DE POSITIONS : 4\n",
+    );
+    const snapshot = parseNetWorthText(withoutPeaRows);
+    expect(snapshot.warnings.some((warning) => warning.includes('PEA has a non-zero PDF summary'))).toBe(true);
+  });
+
+  it('warns when displayed shares and price cannot explain a position value within rounding tolerance', () => {
+    const inconsistent = pdfText.replace(
+      '1,596751 Pièces Physical Gold 155,95 249,01',
+      '1,596751 Pièces Physical Gold 155,95 240,00',
+    );
+    const snapshot = parseNetWorthText(inconsistent);
+    expect(snapshot.warnings.some((warning) => warning.includes('Physical Gold is inconsistent'))).toBe(true);
   });
 
   it('fails closed when the summary buckets do not reconcile with TOTAL', () => {
