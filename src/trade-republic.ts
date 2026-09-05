@@ -37,6 +37,20 @@ function nullable(value: string | undefined): string | null {
   return v === '' ? null : v;
 }
 
+function isIsoDate(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -180,8 +194,37 @@ function parisBusinessDate(datetime: string): string | null {
 export function auditLedger(rows: LedgerRow[]): LedgerAudit {
   if (rows.length === 0) throw new Error('No transaction rows were parsed.');
 
+  const invalidDates = rows.filter((row) => !isIsoDate(row.date));
+  if (invalidDates.length > 0) {
+    throw new Error(`Transaction CSV contains ${invalidDates.length} invalid date value(s).`);
+  }
+
+  const invalidDatetimes = rows.filter((row) => Number.isNaN(Date.parse(row.datetime)));
+  if (invalidDatetimes.length > 0) {
+    throw new Error(`Transaction CSV contains ${invalidDatetimes.length} invalid datetime value(s).`);
+  }
+
+  const emptyTransactionIds = rows.filter((row) => row.transactionId.trim() === '');
+  if (emptyTransactionIds.length > 0) {
+    throw new Error(`Transaction CSV contains ${emptyTransactionIds.length} empty transaction_id value(s).`);
+  }
+
   const ids = rows.map((row) => row.transactionId);
   const uniqueIds = new Set(ids);
+  const duplicateTransactionIds = ids.length - uniqueIds.size;
+  if (duplicateTransactionIds > 0) {
+    throw new Error(`Transaction CSV contains ${duplicateTransactionIds} duplicate transaction_id value(s).`);
+  }
+
+  const nonEurCanonicalMain = rows.filter(
+    (row) => Math.abs(row.mainPerformanceCashflowEur) > 1e-12 && row.currency !== 'EUR',
+  );
+  if (nonEurCanonicalMain.length > 0) {
+    throw new Error(
+      `Transaction CSV contains ${nonEurCanonicalMain.length} canonical main cash-flow row(s) not denominated in EUR.`,
+    );
+  }
+
   let dateVsParisMismatches = 0;
   let mainRelevantDateVsParisMismatches = 0;
 
@@ -215,7 +258,7 @@ export function auditLedger(rows: LedgerRow[]): LedgerAudit {
   return {
     rows: rows.length,
     uniqueTransactionIds: uniqueIds.size,
-    duplicateTransactionIds: ids.length - uniqueIds.size,
+    duplicateTransactionIds,
     firstDate: dates[0] ?? '',
     lastDate: dates.at(-1) ?? '',
     dateVsParisMismatches,
