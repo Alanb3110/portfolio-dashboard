@@ -5,6 +5,7 @@ import type {
   PortfolioAnalysis,
   XirrDiagnostics,
 } from './domain';
+import { reconcileMainPositionQuantities } from './reconciliation';
 
 // Frozen v4 convention: XIRR uses actual calendar-day differences divided by 365.
 const XIRR_DAYS_PER_YEAR = 365;
@@ -202,6 +203,7 @@ export function analyzePortfolio(
     { date: snapshot.snapshotDate, amount: mainValue },
   ]);
   const canonicalCashflowSum = flows.reduce((sum, flow) => sum + flow.amount, 0);
+  const reconciliation = reconcileMainPositionQuantities(applicableLedger, snapshot);
 
   const warnings = [...snapshot.warnings];
   if (futureRows.length > 0) {
@@ -209,6 +211,9 @@ export function analyzePortfolio(
     warnings.push(
       `${futureRows.length} transaction row(s) after snapshot ${snapshot.snapshotDate} were ignored to prevent look-ahead (latest ${latestFutureDate}).`,
     );
+  }
+  if (reconciliation.status === 'FAIL') {
+    warnings.push(`Main position reconciliation FAIL. ${reconciliation.note}`);
   }
   if (xirr.status !== 'PASS') warnings.push(`Main XIRR status: ${xirr.status}. ${xirr.note}`);
 

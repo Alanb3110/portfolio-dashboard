@@ -39,7 +39,16 @@ const snapshot: NetWorthSnapshot = {
     cash: 250,
     total: 1500,
   },
-  positions: [],
+  positions: [
+    {
+      pocket: 'PEA',
+      name: 'Synthetic World',
+      symbol: 'TEST00000001',
+      shares: 10,
+      price: 110,
+      value: 1100,
+    },
+  ],
   warnings: [],
 };
 
@@ -111,6 +120,7 @@ describe('portfolio analysis', () => {
     expect(analysis.extendedInvestedValue).toBe(1200);
     expect(analysis.totalNetWorth).toBe(1500);
     expect(analysis.mainXirr.status).toBe('PASS');
+    expect(analysis.warnings).toEqual([]);
   });
 
   it('ignores transaction rows after the official snapshot date', () => {
