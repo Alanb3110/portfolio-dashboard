@@ -7,6 +7,7 @@ import {
 import type { NetWorthSnapshot } from './domain';
 import { parseNetWorthPdf } from './net-worth';
 import { selectLatestTradeRepublicSources } from './source-refresh';
+import { publishUiSnapshot } from './snapshot-bridge';
 
 const VIEW_ORDER: AllocationViewId[] = ['main', 'pea', 'ct', 'crypto'];
 
@@ -233,6 +234,7 @@ function setupAllocationUi(): boolean {
       if (generation !== parseGeneration) return;
       parsedSnapshot = snapshot;
       parsedKey = key;
+      publishUiSnapshot(snapshot);
     }
     if (!parsedSnapshot || parsedSnapshot.snapshotDate !== expectedDate) return;
 
