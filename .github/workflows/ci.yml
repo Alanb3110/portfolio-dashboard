@@ -28,3 +28,4 @@ jobs:
           node --check worker/src/index.js
           node worker/smoke-test.mjs
           node worker/check-config.mjs
+          npx wrangler deploy --dry-run
