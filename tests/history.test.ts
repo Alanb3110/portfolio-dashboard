@@ -52,6 +52,7 @@ function historySnapshot(overrides: Partial<HistorySnapshot> = {}): HistorySnaps
         weight: 0.4,
       },
     ],
+    benchmarkCheckpoints: {},
     ...overrides,
   };
 }
@@ -106,6 +107,7 @@ describe('local snapshot history', () => {
       'Compte-titres:TEST-B',
     ]);
     expect(snapshot.mainPositions.reduce((sum, position) => sum + position.weight, 0)).toBeCloseTo(1, 12);
+    expect(snapshot.benchmarkCheckpoints).toEqual({});
     expect(Object.keys(snapshot)).not.toContain('transactions');
     expect(Object.keys(snapshot)).not.toContain('pdf');
   });
@@ -116,6 +118,42 @@ describe('local snapshot history', () => {
     const merged = mergeHistorySnapshots([newer], [old]);
     expect(merged).toHaveLength(1);
     expect(merged[0]?.mainValue).toBe(1100);
+  });
+
+  it('keeps the latest compatible benchmark checkpoint when duplicate snapshots are merged', () => {
+    const old = historySnapshot({
+      benchmarkCheckpoints: {
+        'msci-world': {
+          method: 'forward-matched-flow-v1',
+          benchmarkId: 'msci-world',
+          baselineDate: '2026-08-01',
+          baselineMainValue: 1000,
+          asOfDate: '2026-08-15',
+          units: 10,
+          terminalValue: 1050,
+          terminalPriceDate: '2026-08-15',
+          terminalPrice: 105,
+        },
+      },
+    });
+    const newerCheckpoint = historySnapshot({
+      savedAt: '2026-08-01T13:00:00.000Z',
+      benchmarkCheckpoints: {
+        'msci-world': {
+          method: 'forward-matched-flow-v1',
+          benchmarkId: 'msci-world',
+          baselineDate: '2026-08-01',
+          baselineMainValue: 1000,
+          asOfDate: '2026-08-30',
+          units: 10,
+          terminalValue: 1100,
+          terminalPriceDate: '2026-08-30',
+          terminalPrice: 110,
+        },
+      },
+    });
+    const merged = mergeHistorySnapshots([old], [newerCheckpoint]);
+    expect(merged[0]?.benchmarkCheckpoints['msci-world']?.asOfDate).toBe('2026-08-30');
   });
 
   it('round-trips a versioned v2 backup and rejects corrupted data', () => {
@@ -156,6 +194,7 @@ describe('local snapshot history', () => {
     expect(parsed.snapshots).toHaveLength(1);
     expect(parsed.snapshots[0]?.methodologyVersion).toBe('5.0-legacy');
     expect(parsed.snapshots[0]?.ledgerCutoffDate).toBe('2026-08-01');
+    expect(parsed.snapshots[0]?.benchmarkCheckpoints).toEqual({});
     expect(parsed.snapshots[0]?.mainPositions.map((position) => position.id).sort()).toEqual([
       'Compte-titres:TEST',
       'PEA:TEST',
