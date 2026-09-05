@@ -23,30 +23,15 @@ jobs:
           cache: npm
       - name: Pin Wrangler and update lockfile
         run: npm install --save-dev --save-exact wrangler@4.129.0 --ignore-scripts --legacy-peer-deps
-      - name: Add deployment dry-run to CI
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/ci.yml')
-          text = p.read_text()
-          needle = '          node worker/check-config.mjs\n'
-          replacement = needle + '          npx wrangler deploy --dry-run\n'
-          if 'npx wrangler deploy --dry-run' not in text:
-              if needle not in text:
-                  raise SystemExit('CI insertion point not found')
-              text = text.replace(needle, replacement)
-          p.write_text(text)
-          Path('.github/workflows/audit-wrangler-pin.yml').unlink()
-          PY
       - name: Validate pinned deploy path
         run: |
           npm run check
           node worker/check-config.mjs
           npx wrangler deploy --dry-run
-      - name: Commit generated lockfile and CI guard
+      - name: Commit generated dependency graph
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add package.json package-lock.json
           git commit -m "[wrangler-pinned] Pin root Wrangler deploy path"
           git push
