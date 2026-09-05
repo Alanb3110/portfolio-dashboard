@@ -25,6 +25,18 @@ const REQUIRED_COLUMNS = [
 ] as const;
 
 const MAIN_ASSET_CLASSES = new Set(['FUND', 'STOCK']);
+const KNOWN_ACCOUNT_TYPES = new Set(['DEFAULT', 'PEA']);
+const KNOWN_ASSET_CLASSES = new Set(['CRYPTO', 'FUND', 'PRIVATE_FUND', 'STOCK']);
+const KNOWN_MAIN_CATEGORIES = new Set(['CASH', 'CORPORATE_ACTION', 'DELIVERY', 'TRADING']);
+const KNOWN_MAIN_TYPES = new Set([
+  'BENEFITS_SAVEBACK',
+  'BUY',
+  'DIVIDEND',
+  'IPO_SUBSCRIPTION',
+  'MIGRATION',
+  'SELL',
+  'SPLIT',
+]);
 
 function parseNumber(value: string | undefined): number | null {
   if (value == null || value.trim() === '') return null;
@@ -191,6 +203,56 @@ function parisBusinessDate(datetime: string): string | null {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function auditTaxonomy(rows: LedgerRow[]): void {
+  const unknownAccounts = [...new Set(
+    rows.map((row) => row.accountType).filter((value) => !KNOWN_ACCOUNT_TYPES.has(value)),
+  )];
+  if (unknownAccounts.length > 0) {
+    throw new Error(
+      `Transaction CSV contains unknown account_type value(s): ${unknownAccounts.join(', ')}. ` +
+      'Scope classification must be reviewed before analysis.',
+    );
+  }
+
+  const unknownAssetClasses = [...new Set(
+    rows
+      .map((row) => row.assetClass)
+      .filter((value): value is string => value != null && !KNOWN_ASSET_CLASSES.has(value)),
+  )];
+  if (unknownAssetClasses.length > 0) {
+    throw new Error(
+      `Transaction CSV contains unknown asset_class value(s): ${unknownAssetClasses.join(', ')}. ` +
+      'Scope classification must be reviewed before analysis.',
+    );
+  }
+
+  const mainLikeRows = rows.filter(
+    (row) =>
+      KNOWN_ACCOUNT_TYPES.has(row.accountType) &&
+      row.assetClass != null &&
+      MAIN_ASSET_CLASSES.has(row.assetClass),
+  );
+  const unknownMainCategories = [...new Set(
+    mainLikeRows.map((row) => row.category).filter((value) => !KNOWN_MAIN_CATEGORIES.has(value)),
+  )];
+  if (unknownMainCategories.length > 0) {
+    throw new Error(
+      `Transaction CSV contains unknown main-investment category value(s): ${unknownMainCategories.join(', ')}. ` +
+      'Canonical performance mapping must be reviewed before analysis.',
+    );
+  }
+
+  const unknownMainTypes = [...new Set(
+    mainLikeRows.map((row) => row.type).filter((value) => !KNOWN_MAIN_TYPES.has(value)),
+  )];
+  if (unknownMainTypes.length > 0) {
+    throw new Error(
+      `Transaction CSV contains unknown main-investment type value(s): ${unknownMainTypes.join(', ')}. ` +
+      'Canonical performance mapping must be reviewed before analysis.',
+    );
+  }
+}
+
 export function auditLedger(rows: LedgerRow[]): LedgerAudit {
   if (rows.length === 0) throw new Error('No transaction rows were parsed.');
 
@@ -215,6 +277,8 @@ export function auditLedger(rows: LedgerRow[]): LedgerAudit {
   if (duplicateTransactionIds > 0) {
     throw new Error(`Transaction CSV contains ${duplicateTransactionIds} duplicate transaction_id value(s).`);
   }
+
+  auditTaxonomy(rows);
 
   const nonEurCanonicalMain = rows.filter(
     (row) => Math.abs(row.mainPerformanceCashflowEur) > 1e-12 && row.currency !== 'EUR',
