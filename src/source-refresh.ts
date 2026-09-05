@@ -3,8 +3,8 @@ export interface TradeRepublicSourcePair {
   pdf: File;
 }
 
-const CSV_PATTERN = /^transaction export(?:\s*\(\d+\))?\.csv$/i;
-const PDF_PATTERN = /^net worth(?:\s*\(\d+\))?\.pdf$/i;
+const CSV_PATTERN = /^transaction export(?:\s*(?:\(\d+\)|\d+))?\.csv$/i;
+const PDF_PATTERN = /^net worth(?:\s*(?:\(\d+\)|\d+))?\.pdf$/i;
 
 function newest(files: File[]): File | null {
   return [...files].sort((a, b) => {
