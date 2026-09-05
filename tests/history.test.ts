@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  HISTORY_METHODOLOGY_VERSION,
   buildHistoryBackup,
   compareHistorySnapshots,
   createHistorySnapshot,
@@ -12,7 +13,12 @@ import type { NetWorthSnapshot, PortfolioAnalysis } from '../src/domain';
 
 function historySnapshot(overrides: Partial<HistorySnapshot> = {}): HistorySnapshot {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    methodologyVersion: HISTORY_METHODOLOGY_VERSION,
+    sourceFingerprint: null,
+    ledgerFirstDate: null,
+    ledgerLastDate: null,
+    ledgerCutoffDate: '2026-08-01',
     snapshotDate: '2026-08-01',
     savedAt: '2026-08-01T12:00:00.000Z',
     mainValue: 1000,
@@ -30,7 +36,7 @@ function historySnapshot(overrides: Partial<HistorySnapshot> = {}): HistorySnaps
     },
     mainPositions: [
       {
-        id: 'TEST-A',
+        id: 'PEA:TEST-A',
         name: 'Synthetic A',
         symbol: 'TEST-A',
         pocket: 'PEA',
@@ -38,7 +44,7 @@ function historySnapshot(overrides: Partial<HistorySnapshot> = {}): HistorySnaps
         weight: 0.6,
       },
       {
-        id: 'TEST-B',
+        id: 'Compte-titres:TEST-B',
         name: 'Synthetic B',
         symbol: 'TEST-B',
         pocket: 'Compte-titres',
@@ -89,10 +95,16 @@ const netWorth: NetWorthSnapshot = {
 };
 
 describe('local snapshot history', () => {
-  it('persists derived values only and excludes non-main positions from allocation history', () => {
+  it('persists derived values only with scoped main-position identities', () => {
     const snapshot = createHistorySnapshot(analysis, netWorth, '2026-08-30T20:00:00.000Z');
+    expect(snapshot.schemaVersion).toBe(2);
+    expect(snapshot.methodologyVersion).toBe(HISTORY_METHODOLOGY_VERSION);
+    expect(snapshot.ledgerCutoffDate).toBe('2026-08-30');
     expect(snapshot.snapshotDate).toBe('2026-08-30');
-    expect(snapshot.mainPositions.map((position) => position.id)).toEqual(['TEST-A', 'TEST-B']);
+    expect(snapshot.mainPositions.map((position) => position.id)).toEqual([
+      'PEA:TEST-A',
+      'Compte-titres:TEST-B',
+    ]);
     expect(snapshot.mainPositions.reduce((sum, position) => sum + position.weight, 0)).toBeCloseTo(1, 12);
     expect(Object.keys(snapshot)).not.toContain('transactions');
     expect(Object.keys(snapshot)).not.toContain('pdf');
@@ -106,7 +118,7 @@ describe('local snapshot history', () => {
     expect(merged[0]?.mainValue).toBe(1100);
   });
 
-  it('round-trips a versioned backup and rejects corrupted data', () => {
+  it('round-trips a versioned v2 backup and rejects corrupted data', () => {
     const backup = buildHistoryBackup([historySnapshot()], '2026-08-30T20:00:00.000Z');
     const parsed = parseHistoryBackup(JSON.stringify(backup));
     expect(parsed).toEqual(backup);
@@ -116,30 +128,66 @@ describe('local snapshot history', () => {
     expect(() => parseHistoryBackup(JSON.stringify(corrupted))).toThrow(/mainValue/);
   });
 
-  it('rejects unsupported backup schema versions instead of silently migrating them', () => {
+  it('migrates v1 backups without losing snapshots and scopes legacy position identities', () => {
+    const legacy = {
+      schemaVersion: 1,
+      exportedAt: '2026-08-30T20:00:00.000Z',
+      snapshots: [
+        {
+          schemaVersion: 1,
+          snapshotDate: '2026-08-01',
+          savedAt: '2026-08-01T12:00:00.000Z',
+          mainValue: 1000,
+          extendedInvestedValue: 1100,
+          totalNetWorth: 1300,
+          simpleEconomicPnl: 100,
+          mainXirr: 0.12,
+          summary: historySnapshot().summary,
+          mainPositions: [
+            { id: 'TEST', name: 'Synthetic', symbol: 'TEST', pocket: 'PEA', value: 600, weight: 0.6 },
+            { id: 'TEST', name: 'Synthetic', symbol: 'TEST', pocket: 'Compte-titres', value: 400, weight: 0.4 },
+          ],
+        },
+      ],
+    };
+
+    const parsed = parseHistoryBackup(JSON.stringify(legacy));
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.snapshots).toHaveLength(1);
+    expect(parsed.snapshots[0]?.methodologyVersion).toBe('5.0-legacy');
+    expect(parsed.snapshots[0]?.ledgerCutoffDate).toBe('2026-08-01');
+    expect(parsed.snapshots[0]?.mainPositions.map((position) => position.id).sort()).toEqual([
+      'Compte-titres:TEST',
+      'PEA:TEST',
+    ]);
+  });
+
+  it('rejects unsupported backup schema versions instead of silently guessing them', () => {
     const backup = buildHistoryBackup([historySnapshot()], '2026-08-30T20:00:00.000Z') as unknown as Record<string, unknown>;
-    backup.schemaVersion = 2;
+    backup.schemaVersion = 99;
     expect(() => parseHistoryBackup(JSON.stringify(backup))).toThrow(/Unsupported backup schema version/);
   });
 
   it('selects the latest earlier snapshot and computes value/allocation deltas', () => {
-    const first = historySnapshot({ snapshotDate: '2026-08-01' });
+    const first = historySnapshot({ snapshotDate: '2026-08-01', ledgerCutoffDate: '2026-08-01' });
     const second = historySnapshot({
       snapshotDate: '2026-08-15',
+      ledgerCutoffDate: '2026-08-15',
       savedAt: '2026-08-15T12:00:00.000Z',
       mainValue: 1100,
       mainPositions: [
-        { id: 'TEST-A', name: 'Synthetic A', symbol: 'TEST-A', pocket: 'PEA', value: 715, weight: 0.65 },
-        { id: 'TEST-B', name: 'Synthetic B', symbol: 'TEST-B', pocket: 'Compte-titres', value: 385, weight: 0.35 },
+        { id: 'PEA:TEST-A', name: 'Synthetic A', symbol: 'TEST-A', pocket: 'PEA', value: 715, weight: 0.65 },
+        { id: 'Compte-titres:TEST-B', name: 'Synthetic B', symbol: 'TEST-B', pocket: 'Compte-titres', value: 385, weight: 0.35 },
       ],
     });
     const current = historySnapshot({
       snapshotDate: '2026-08-30',
+      ledgerCutoffDate: '2026-08-30',
       savedAt: '2026-08-30T12:00:00.000Z',
       mainValue: 1200,
       mainPositions: [
-        { id: 'TEST-A', name: 'Synthetic A', symbol: 'TEST-A', pocket: 'PEA', value: 720, weight: 0.6 },
-        { id: 'TEST-B', name: 'Synthetic B', symbol: 'TEST-B', pocket: 'Compte-titres', value: 480, weight: 0.4 },
+        { id: 'PEA:TEST-A', name: 'Synthetic A', symbol: 'TEST-A', pocket: 'PEA', value: 720, weight: 0.6 },
+        { id: 'Compte-titres:TEST-B', name: 'Synthetic B', symbol: 'TEST-B', pocket: 'Compte-titres', value: 480, weight: 0.4 },
       ],
     });
 
@@ -148,6 +196,6 @@ describe('local snapshot history', () => {
     const comparison = compareHistorySnapshots(current, previous!);
     expect(comparison.mainValueDelta).toBe(100);
     expect(comparison.mainValueDeltaRatio).toBeCloseTo(1200 / 1100 - 1, 12);
-    expect(comparison.allocationDeltas.find((item) => item.id === 'TEST-A')?.weightDelta).toBeCloseTo(-0.05, 12);
+    expect(comparison.allocationDeltas.find((item) => item.id === 'PEA:TEST-A')?.weightDelta).toBeCloseTo(-0.05, 12);
   });
 });
