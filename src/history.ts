@@ -1,6 +1,8 @@
 import type { NetWorthSnapshot, NetWorthSummary, PortfolioAnalysis } from './domain';
 
-export const HISTORY_SCHEMA_VERSION = 1 as const;
+export const HISTORY_SCHEMA_VERSION = 2 as const;
+export const HISTORY_METHODOLOGY_VERSION = '5.1' as const;
+const LEGACY_METHODOLOGY_VERSION = '5.0-legacy';
 const DB_NAME = 'portfolio-dashboard-v5';
 const DB_VERSION = 1;
 const STORE_NAME = 'snapshots';
@@ -16,6 +18,11 @@ export interface HistoryPosition {
 
 export interface HistorySnapshot {
   schemaVersion: typeof HISTORY_SCHEMA_VERSION;
+  methodologyVersion: string;
+  sourceFingerprint: string | null;
+  ledgerFirstDate: string | null;
+  ledgerLastDate: string | null;
+  ledgerCutoffDate: string;
   snapshotDate: string;
   savedAt: string;
   mainValue: number;
@@ -60,6 +67,11 @@ function text(value: unknown, label: string): string {
   return value;
 }
 
+function nullableText(value: unknown, label: string): string | null {
+  if (value == null) return null;
+  return text(value, label);
+}
+
 function isoDate(value: unknown, label: string): string {
   const raw = text(value, label);
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -76,6 +88,11 @@ function isoDate(value: unknown, label: string): string {
     throw new Error(`Invalid ${label}.`);
   }
   return raw;
+}
+
+function nullableIsoDate(value: unknown, label: string): string | null {
+  if (value == null) return null;
+  return isoDate(value, label);
 }
 
 function isoInstant(value: unknown, label: string): string {
@@ -97,15 +114,20 @@ function summaryFromUnknown(value: unknown): NetWorthSummary {
   };
 }
 
+function canonicalPositionId(pocket: 'Compte-titres' | 'PEA', symbol: string | null, name: string): string {
+  return `${pocket}:${symbol ?? name}`;
+}
+
 function positionFromUnknown(value: unknown): HistoryPosition {
   if (typeof value !== 'object' || value == null) throw new Error('Invalid history position.');
   const object = value as Record<string, unknown>;
   const pocket = text(object.pocket, 'position.pocket');
   if (pocket !== 'Compte-titres' && pocket !== 'PEA') throw new Error('Invalid position.pocket.');
   const symbol = object.symbol == null ? null : text(object.symbol, 'position.symbol');
+  const name = text(object.name, 'position.name');
   return {
-    id: text(object.id, 'position.id'),
-    name: text(object.name, 'position.name'),
+    id: canonicalPositionId(pocket, symbol, name),
+    name,
     symbol,
     pocket,
     value: finite(object.value, 'position.value'),
@@ -113,14 +135,21 @@ function positionFromUnknown(value: unknown): HistoryPosition {
   };
 }
 
-export function validateHistorySnapshot(value: unknown): HistorySnapshot {
-  if (typeof value !== 'object' || value == null) throw new Error('Invalid history snapshot.');
-  const object = value as Record<string, unknown>;
-  if (object.schemaVersion !== HISTORY_SCHEMA_VERSION) throw new Error('Unsupported history snapshot schema.');
+function validateV2HistorySnapshot(object: Record<string, unknown>): HistorySnapshot {
   if (!Array.isArray(object.mainPositions)) throw new Error('Invalid mainPositions.');
+  const snapshotDate = isoDate(object.snapshotDate, 'snapshotDate');
+  const ledgerCutoffDate = isoDate(object.ledgerCutoffDate, 'ledgerCutoffDate');
+  if (ledgerCutoffDate !== snapshotDate) {
+    throw new Error('ledgerCutoffDate must match snapshotDate.');
+  }
   return {
     schemaVersion: HISTORY_SCHEMA_VERSION,
-    snapshotDate: isoDate(object.snapshotDate, 'snapshotDate'),
+    methodologyVersion: text(object.methodologyVersion, 'methodologyVersion'),
+    sourceFingerprint: nullableText(object.sourceFingerprint, 'sourceFingerprint'),
+    ledgerFirstDate: nullableIsoDate(object.ledgerFirstDate, 'ledgerFirstDate'),
+    ledgerLastDate: nullableIsoDate(object.ledgerLastDate, 'ledgerLastDate'),
+    ledgerCutoffDate,
+    snapshotDate,
     savedAt: isoInstant(object.savedAt, 'savedAt'),
     mainValue: finite(object.mainValue, 'mainValue'),
     extendedInvestedValue: finite(object.extendedInvestedValue, 'extendedInvestedValue'),
@@ -130,6 +159,29 @@ export function validateHistorySnapshot(value: unknown): HistorySnapshot {
     summary: summaryFromUnknown(object.summary),
     mainPositions: object.mainPositions.map(positionFromUnknown),
   };
+}
+
+export function validateHistorySnapshot(value: unknown): HistorySnapshot {
+  if (typeof value !== 'object' || value == null) throw new Error('Invalid history snapshot.');
+  const object = value as Record<string, unknown>;
+
+  if (object.schemaVersion === 1) {
+    const snapshotDate = isoDate(object.snapshotDate, 'snapshotDate');
+    return validateV2HistorySnapshot({
+      ...object,
+      schemaVersion: HISTORY_SCHEMA_VERSION,
+      methodologyVersion: LEGACY_METHODOLOGY_VERSION,
+      sourceFingerprint: null,
+      ledgerFirstDate: null,
+      ledgerLastDate: null,
+      ledgerCutoffDate: snapshotDate,
+    });
+  }
+
+  if (object.schemaVersion !== HISTORY_SCHEMA_VERSION) {
+    throw new Error(`Unsupported history snapshot schema: ${String(object.schemaVersion)}.`);
+  }
+  return validateV2HistorySnapshot(object);
 }
 
 export function createHistorySnapshot(
@@ -142,7 +194,7 @@ export function createHistorySnapshot(
       position.pocket === 'Compte-titres' || position.pocket === 'PEA',
     )
     .map((position) => ({
-      id: position.symbol ?? `${position.pocket}:${position.name}`,
+      id: canonicalPositionId(position.pocket, position.symbol, position.name),
       name: position.name,
       symbol: position.symbol,
       pocket: position.pocket,
@@ -153,6 +205,11 @@ export function createHistorySnapshot(
 
   return validateHistorySnapshot({
     schemaVersion: HISTORY_SCHEMA_VERSION,
+    methodologyVersion: HISTORY_METHODOLOGY_VERSION,
+    sourceFingerprint: null,
+    ledgerFirstDate: null,
+    ledgerLastDate: null,
+    ledgerCutoffDate: analysis.snapshotDate,
     snapshotDate: analysis.snapshotDate,
     savedAt,
     mainValue: analysis.mainValue,
@@ -235,7 +292,7 @@ export function parseHistoryBackup(textContent: string): HistoryBackup {
   }
   if (typeof raw !== 'object' || raw == null) throw new Error('Backup root is invalid.');
   const object = raw as Record<string, unknown>;
-  if (object.schemaVersion !== HISTORY_SCHEMA_VERSION) {
+  if (object.schemaVersion !== 1 && object.schemaVersion !== HISTORY_SCHEMA_VERSION) {
     throw new Error(`Unsupported backup schema version: ${String(object.schemaVersion)}.`);
   }
   if (!Array.isArray(object.snapshots)) throw new Error('Backup snapshots are invalid.');
