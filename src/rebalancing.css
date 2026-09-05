@@ -1,0 +1,164 @@
+.rebalancing-panel {
+  border-color: rgba(143, 216, 174, .16);
+  background: rgba(11, 27, 47, .78);
+}
+
+.rebalance-body {
+  display: grid;
+  gap: 12px;
+}
+
+.rebalance-action {
+  width: auto;
+  min-height: 42px;
+}
+
+.rebalance-action--primary {
+  border-color: rgba(143, 216, 174, .24);
+  background: rgba(143, 216, 174, .11);
+  color: #b9edcc;
+}
+
+.rebalance-warning {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rebalance-target-form {
+  display: grid;
+  gap: 0;
+}
+
+.rebalance-target-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(181, 204, 240, .09);
+}
+
+.rebalance-target-row > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rebalance-target-input-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.rebalance-target-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 7px;
+  border: 1px solid rgba(181, 204, 240, .18);
+  border-radius: 10px;
+  outline: none;
+  background: rgba(5, 14, 28, .55);
+  color: #eef4ff;
+  text-align: right;
+}
+
+.rebalance-target-input-wrap input:focus {
+  border-color: rgba(138, 180, 255, .48);
+}
+
+.rebalance-target-input-wrap span {
+  color: #899ab2;
+  font-size: .78rem;
+}
+
+.rebalance-sum-status {
+  margin: 0;
+  color: #f0c782;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.rebalance-sum-status--pass {
+  color: #8fd8ae;
+}
+
+.rebalance-form-error {
+  margin: 0;
+  color: #f0a6a6;
+}
+
+.rebalance-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rebalance-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rebalance-summary-card {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  border: 1px solid rgba(181, 204, 240, .1);
+  border-radius: 14px;
+  background: rgba(5, 14, 28, .34);
+}
+
+.rebalance-list {
+  display: grid;
+  gap: 0;
+}
+
+.rebalance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(181, 204, 240, .09);
+}
+
+.rebalance-row-identity,
+.rebalance-row-drift {
+  display: grid;
+  gap: 4px;
+}
+
+.rebalance-current-target {
+  color: #91a1b8;
+  font-size: .72rem;
+}
+
+.rebalance-row-drift {
+  align-content: center;
+  text-align: right;
+}
+
+.rebalance-over {
+  color: #f0c782;
+}
+
+.rebalance-under {
+  color: #8ab4ff;
+}
+
+.rebalance-on-target {
+  color: #8fd8ae;
+}
+
+.rebalance-caveat {
+  margin: 2px 0 0;
+  color: #798aa3;
+  font-size: .7rem;
+  line-height: 1.45;
+}
+
+@media (min-width: 680px) {
+  .rebalance-target-row {
+    grid-template-columns: minmax(0, 1fr) 110px;
+  }
+}
