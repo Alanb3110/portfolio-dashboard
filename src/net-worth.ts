@@ -198,11 +198,23 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
       'Non cote': summary.nonCote,
     };
     for (const [pocket, expected] of Object.entries(expectedByPocket) as [PositionPocket, number][]) {
-      const parsed = positions
-        .filter((position) => position.pocket === pocket)
-        .reduce((sum, position) => sum + position.value, 0);
-      if (parsed > 0 && Math.abs(parsed - expected) > 0.03) {
+      const pocketPositions = positions.filter((position) => position.pocket === pocket);
+      const parsed = pocketPositions.reduce((sum, position) => sum + position.value, 0);
+      if (expected > 0 && pocketPositions.length === 0) {
+        warnings.push(`${pocket} has a non-zero PDF summary (${expected.toFixed(2)} EUR) but no position rows were parsed.`);
+      } else if (Math.abs(parsed - expected) > 0.03) {
         warnings.push(`${pocket} position rows differ from the PDF summary by ${(parsed - expected).toFixed(2)} EUR.`);
+      }
+    }
+
+    for (const position of positions) {
+      // The statement displays unit prices to cents, so the hidden true price can differ by up to 0.005 EUR per unit.
+      const roundingTolerance = Math.abs(position.shares) * 0.005 + 0.02;
+      const displayedProductDelta = position.shares * position.price - position.value;
+      if (Math.abs(displayedProductDelta) > roundingTolerance) {
+        warnings.push(
+          `${position.pocket} position ${position.name} is inconsistent with displayed shares × price by ${displayedProductDelta.toFixed(2)} EUR.`,
+        );
       }
     }
 
