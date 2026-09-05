@@ -225,10 +225,11 @@ function setupAllocationUi(): boolean {
     const expectedDate = expectedSnapshotDate(results);
     if (!expectedDate) return;
 
-    const key = sourceKey(pendingPdf);
+    const pdfFile = pendingPdf;
+    const key = sourceKey(pdfFile);
     if (parsedKey !== key) {
       const generation = ++parseGeneration;
-      const snapshot = await parseNetWorthPdf(pendingPdf);
+      const snapshot = await parseNetWorthPdf(pdfFile);
       if (generation !== parseGeneration) return;
       parsedSnapshot = snapshot;
       parsedKey = key;
@@ -239,18 +240,18 @@ function setupAllocationUi(): boolean {
     if (legacy) legacy.hidden = true;
 
     const existing = results.querySelector<HTMLElement>('#allocation-panel');
-    const replacement = createPanel(parsedSnapshot, selectedView, (view) => {
+    if (existing?.dataset.sourceKey === key) return;
+    existing?.remove();
+
+    const panel = createPanel(parsedSnapshot, selectedView, (view) => {
       selectedView = view;
       const current = results.querySelector<HTMLElement>('#allocation-panel');
       if (current && parsedSnapshot) renderView(current, parsedSnapshot, selectedView);
     });
+    panel.dataset.sourceKey = key;
 
-    if (existing) {
-      existing.replaceWith(replacement);
-      return;
-    }
-    if (legacy) legacy.before(replacement);
-    else results.append(replacement);
+    if (legacy) legacy.before(panel);
+    else results.append(panel);
   };
 
   const schedule = (): void => {
