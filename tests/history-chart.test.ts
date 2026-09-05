@@ -89,6 +89,6 @@ describe('buildHistoryChartSeries', () => {
     const second = snapshot('2026-10-05', 6200);
     second.benchmarkCheckpoints.sp500 = checkpoint('sp500', '2026-09-10', 6100, '2026-10-05', 6300);
 
-    expect(buildHistoryChartSeries([first, second])[1].sp500).toBeNull();
+    expect(buildHistoryChartSeries([first, second])[1]!.sp500).toBeNull();
   });
 });
