@@ -15,6 +15,30 @@ function daysBetween(a: string, b: string): number {
   return (end - start) / 86_400_000;
 }
 
+function isIsoDate(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+function naXirr(note: string): XirrDiagnostics {
+  return {
+    status: 'N/A',
+    roots: [],
+    selectedRoot: null,
+    residual: null,
+    note,
+  };
+}
+
 export function aggregateCashFlows(flows: CashFlow[]): CashFlow[] {
   const byDate = new Map<string, number>();
   for (const flow of flows) {
@@ -66,13 +90,7 @@ export function solveXirr(flows: CashFlow[]): XirrDiagnostics {
   const hasNegative = aggregated.some((flow) => flow.amount < 0);
   const hasPositive = aggregated.some((flow) => flow.amount > 0);
   if (!hasNegative || !hasPositive) {
-    return {
-      status: 'N/A',
-      roots: [],
-      selectedRoot: null,
-      residual: null,
-      note: 'XIRR requires at least one negative and one positive cash flow.',
-    };
+    return naXirr('XIRR requires at least one negative and one positive cash flow.');
   }
 
   const xs: number[] = [];
@@ -105,13 +123,7 @@ export function solveXirr(flows: CashFlow[]): XirrDiagnostics {
     .filter((root, index, array) => index === 0 || Math.abs(root - (array[index - 1] ?? root)) > 1e-7);
 
   if (uniqueRoots.length === 0) {
-    return {
-      status: 'N/A',
-      roots: [],
-      selectedRoot: null,
-      residual: null,
-      note: 'No defensible XIRR root was found over the scanned rate domain.',
-    };
+    return naXirr('No defensible XIRR root was found over the scanned rate domain.');
   }
 
   if (uniqueRoots.length > 1) {
@@ -141,6 +153,40 @@ export function mainCashFlows(ledger: LedgerRow[]): CashFlow[] {
       .filter((row) => Math.abs(row.mainPerformanceCashflowEur) > 1e-12)
       .map((row) => ({ date: row.date, amount: row.mainPerformanceCashflowEur })),
   );
+}
+
+export function forwardPortfolioXirr(
+  baselineDate: string,
+  baselineMainValue: number,
+  allMainFlows: CashFlow[],
+  snapshotDate: string,
+  terminalMainValue: number,
+): XirrDiagnostics {
+  if (
+    !isIsoDate(baselineDate) ||
+    !isIsoDate(snapshotDate) ||
+    baselineDate > snapshotDate ||
+    !Number.isFinite(baselineMainValue) ||
+    baselineMainValue < 0 ||
+    !Number.isFinite(terminalMainValue) ||
+    terminalMainValue < 0
+  ) {
+    return naXirr('Invalid forward portfolio baseline or terminal state.');
+  }
+
+  if (baselineDate === snapshotDate) {
+    return naXirr('Portfolio baseline and terminal snapshot are the same date; no return period exists yet.');
+  }
+
+  const futureFlows = aggregateCashFlows(allMainFlows).filter(
+    (flow) => flow.date > baselineDate && flow.date <= snapshotDate,
+  );
+
+  return solveXirr([
+    { date: baselineDate, amount: -baselineMainValue },
+    ...futureFlows,
+    { date: snapshotDate, amount: terminalMainValue },
+  ]);
 }
 
 export function analyzePortfolio(
