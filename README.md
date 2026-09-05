@@ -14,7 +14,9 @@ Local-first portfolio analysis PWA for Trade Republic exports.
 
 The PWA is deployed through GitHub Pages and the deterministic local core is operational. Trade Republic PDF/CSV parsing, main-scope normalization, economic P&L and XIRR are covered by synthetic tests and CI.
 
-The next layer adds explicit local snapshot history in IndexedDB. Only derived snapshot values are persisted after a user action; raw PDF/CSV bytes and the transaction ledger are not saved. Market-data adapters and World / S&P 500 benchmark comparison remain a later, non-blocking layer.
+Derived snapshot history is persisted only after an explicit user action in IndexedDB; raw PDF/CSV bytes and the normalized transaction ledger are not stored. World and S&P 500 benchmarks are matched-flow forward comparisons initialized from the first local v5 snapshot. Market prices are obtained through a restricted Cloudflare Worker that accepts only the public benchmark IDs and date ranges; the EODHD API token remains a Cloudflare runtime secret.
+
+The benchmark layer is deliberately non-blocking: a provider/network failure must never prevent the local portfolio analysis from rendering.
 
 ## Local development
 
