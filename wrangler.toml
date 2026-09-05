@@ -1,0 +1,21 @@
+# Root-level Cloudflare Workers configuration.
+# Kept in sync with worker/wrangler.toml so Workers Builds succeeds whether
+# the configured project root is the repository root or /worker.
+name = "portfolio-market-proxy"
+main = "worker/src/index.js"
+compatibility_date = "2026-09-05"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://alanb3110.github.io"
+
+[secrets]
+required = [ "EODHD_API_TOKEN" ]
+
+[[ratelimits]]
+name = "MARKET_RATE_LIMITER"
+namespace_id = "5101"
+
+  [ratelimits.simple]
+  limit = 4
+  period = 60
