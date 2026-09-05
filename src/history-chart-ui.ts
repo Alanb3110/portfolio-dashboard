@@ -69,7 +69,7 @@ function renderSvg(points: HistoryChartPoint[]): SVGSVGElement {
   minValue -= padding;
   maxValue += padding;
 
-  const start = dateMs(points[0].date);
+  const start = dateMs(points[0]!.date);
   const end = dateMs(points.at(-1)!.date);
   const duration = Math.max(end - start, 1);
   const x = (date: string) => left + ((dateMs(date) - start) / duration) * plotWidth;
@@ -105,7 +105,7 @@ function renderSvg(points: HistoryChartPoint[]): SVGSVGElement {
   firstLabel.setAttribute('x', String(left));
   firstLabel.setAttribute('y', String(height - 13));
   firstLabel.classList.add('history-chart-axis-label');
-  firstLabel.textContent = points[0].date;
+  firstLabel.textContent = points[0]!.date;
   svg.append(firstLabel);
 
   const lastLabel = svgNode('text');
@@ -207,9 +207,14 @@ function setupHistoryChart(): boolean {
   const panel = element('section', 'panel history-chart-panel');
   let scheduled = false;
   let rendering = false;
+  let rerenderRequested = false;
 
   const schedule = (): void => {
-    if (scheduled || rendering) return;
+    if (rendering) {
+      rerenderRequested = true;
+      return;
+    }
+    if (scheduled) return;
     scheduled = true;
     queueMicrotask(() => {
       scheduled = false;
@@ -228,6 +233,10 @@ function setupHistoryChart(): boolean {
         })
         .finally(() => {
           rendering = false;
+          if (rerenderRequested) {
+            rerenderRequested = false;
+            schedule();
+          }
         });
     });
   };
