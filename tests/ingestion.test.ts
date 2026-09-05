@@ -37,6 +37,16 @@ describe('Net Worth parser', () => {
     expect(snapshot.warnings).toEqual([]);
   });
 
+  it('parses crypto tickers when the statement date shares the same extracted line', () => {
+    const layoutVariant = pdfText
+      .replace('SOL\n', 'SOL 27.08.2026\n')
+      .replace('BTC\n', 'BTC 27.08.2026\n');
+    const snapshot = parseNetWorthText(layoutVariant);
+    expect(snapshot.positions.find((position) => position.name === 'Solana')?.symbol).toBe('SOL');
+    expect(snapshot.positions.find((position) => position.name === 'Bitcoin')?.symbol).toBe('BTC');
+    expect(snapshot.warnings).toEqual([]);
+  });
+
   it('ignores the brokerage account number printed before the net-worth table', () => {
     const snapshot = parseNetWorthText(pdfText);
     expect(snapshot.summary.compteTitres).toBe(726.65);

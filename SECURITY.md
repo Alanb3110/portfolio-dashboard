@@ -14,8 +14,9 @@ Portfolio Dashboard processes financial exports and therefore treats imported da
 
 ## Application rules
 
-- Personal files are selected explicitly by the user.
+- Personal files are selected explicitly by the user, either individually or through the local folder picker.
 - PDF/CSV bytes and the normalized transaction ledger are processed in browser memory and are not persisted by the application.
+- Folder refresh computes SHA-256 fingerprints locally to detect unchanged source pairs. Only the combined fingerprint is stored in local browser storage; file contents and names are not persisted by this mechanism.
 - Derived snapshot persistence is opt-in and local to IndexedDB on the current browser/device.
 - The user can export a versioned JSON backup, import it, or erase all local snapshot data explicitly.
 - Exported backup files are sensitive personal financial data and must not be committed to this repository.
@@ -42,7 +43,7 @@ The PWA Content Security Policy allows market connections only to `https://portf
 
 ## Storage limitations
 
-IndexedDB improves continuity but is not a guaranteed backup. Browser storage can be cleared by the user, the OS or browser storage management. The explicit JSON export is therefore the recovery mechanism for historical snapshots.
+IndexedDB and local browser storage improve continuity but are not guaranteed backups. Browser storage can be cleared by the user, the OS or browser storage management. The explicit JSON export is therefore the recovery mechanism for historical snapshots.
 
 ## Public repository
 

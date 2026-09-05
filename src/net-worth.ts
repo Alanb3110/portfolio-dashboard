@@ -146,9 +146,12 @@ function parsePositions(lines: string[]): SnapshotPosition[] {
         continue;
       }
 
-      if (pending.pocket === 'Crypto' && pending.symbol == null && /^[A-Z0-9]{2,12}$/.test(line)) {
-        pending.symbol = line;
-        continue;
+      if (pending.pocket === 'Crypto' && pending.symbol == null) {
+        const ticker = line.match(/^([A-Z0-9]{2,12})(?:\s+\d{2}\.\d{2}\.\d{4})?$/);
+        if (ticker?.[1]) {
+          pending.symbol = ticker[1];
+          continue;
+        }
       }
 
       if (line.startsWith('NOMBRE DE POSITIONS')) flush();
