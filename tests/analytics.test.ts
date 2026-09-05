@@ -112,4 +112,26 @@ describe('portfolio analysis', () => {
     expect(analysis.totalNetWorth).toBe(1500);
     expect(analysis.mainXirr.status).toBe('PASS');
   });
+
+  it('ignores transaction rows after the official snapshot date', () => {
+    const future = trade({
+      datetime: '2026-01-02T10:00:00Z',
+      date: '2026-01-02',
+      amount: -500,
+      shares: 5,
+      economicCashflowEur: -500,
+      quantityEffect: 5,
+      mainPerformanceCashflowEur: -500,
+      transactionId: 'synthetic-future',
+    });
+
+    const analysis = analyzePortfolio([trade(), future], snapshot);
+    expect(analysis.simpleEconomicPnl).toBe(100);
+    expect(analysis.transactionCount).toBe(1);
+    expect(analysis.mainXirr.status).toBe('PASS');
+    expect(analysis.mainXirr.selectedRoot ?? 0).toBeCloseTo(0.1, 8);
+    expect(analysis.warnings).toEqual([
+      '1 transaction row(s) after snapshot 2026-01-01 were ignored to prevent look-ahead (latest 2026-01-02).',
+    ]);
+  });
 });
