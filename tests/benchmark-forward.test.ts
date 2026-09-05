@@ -73,22 +73,39 @@ describe('forward benchmark baseline', () => {
     expect(replay.ignoredFuturePricePoints).toBe(1);
   });
 
-  it('requires exact prices only for flows after the baseline', () => {
+  it('executes a non-session flow at the first available close after the cash-flow date', () => {
     const replay = replayBenchmarkFromBaseline(
       world,
       { snapshotDate: '2026-08-03', mainValue: 1000 },
-      [
-        { date: '2025-01-02', amount: -5000 },
-        { date: '2026-08-10', amount: -200 },
-      ],
+      [{ date: '2026-08-08', amount: -200 }],
       '2026-08-31',
       prices([
         ['2026-08-03', 100],
-        ['2026-08-31', 110],
+        ['2026-08-07', 105],
+        ['2026-08-10', 110],
+        ['2026-08-31', 120],
+      ]),
+    );
+    expect(replay.status).toBe('PASS');
+    expect(replay.units).toBeCloseTo(10 + 200 / 110, 12);
+    expect(replay.note).toMatch(/first available close after the flow date/);
+  });
+
+  it('does not use a future close beyond the terminal snapshot to execute a pending flow', () => {
+    const replay = replayBenchmarkFromBaseline(
+      world,
+      { snapshotDate: '2026-08-03', mainValue: 1000 },
+      [{ date: '2026-08-30', amount: -200 }],
+      '2026-08-30',
+      prices([
+        ['2026-08-03', 100],
+        ['2026-08-28', 110],
+        ['2026-08-31', 120],
       ]),
     );
     expect(replay.status).toBe('N/A');
-    expect(replay.missingFlowDates).toEqual(['2026-08-10']);
+    expect(replay.missingFlowDates).toEqual(['2026-08-30']);
+    expect(replay.note).toMatch(/No causal benchmark close/i);
   });
 
   it('needs only a short public-data window beginning shortly before the baseline', () => {
@@ -149,6 +166,35 @@ describe('forward benchmark checkpoints', () => {
     expect(advanced.units).toBeCloseTo((initial.units ?? 0) + 100 / 125, 12);
     expect(advanced.terminalValue).toBeCloseTo(((initial.units ?? 0) + 100 / 125) * 140, 12);
     expect(advanced.note).toMatch(/Advanced local benchmark checkpoint/);
+  });
+
+  it('applies the same causal next-close rule when advancing a checkpoint', () => {
+    const baseline = { snapshotDate: '2026-08-03', mainValue: 1000 };
+    const initial = replayBenchmarkFromBaseline(
+      world,
+      baseline,
+      [],
+      '2026-08-31',
+      prices([
+        ['2026-08-03', 100],
+        ['2026-08-31', 120],
+      ]),
+    );
+    const checkpoint = checkpointFromReplay(baseline, '2026-08-31', initial)!;
+    const advanced = replayBenchmarkFromCheckpoint(
+      world,
+      baseline,
+      checkpoint,
+      [{ date: '2026-09-05', amount: -100 }],
+      '2026-09-30',
+      prices([
+        ['2026-09-04', 121],
+        ['2026-09-07', 125],
+        ['2026-09-30', 130],
+      ]),
+    );
+    expect(advanced.status).toBe('PASS');
+    expect(advanced.units).toBeCloseTo((initial.units ?? 0) + 100 / 125, 12);
   });
 
   it('requests only from the last checkpoint onward', () => {
