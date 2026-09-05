@@ -19,7 +19,11 @@ jobs:
         with:
           node-version: '22'
       - name: Install dependencies
-        run: npm install --ignore-scripts --legacy-peer-deps
+        run: |
+          npm install --ignore-scripts --legacy-peer-deps
+          echo '---PACKAGE-LOCK-BEGIN---'
+          cat package-lock.json
+          echo '---PACKAGE-LOCK-END---'
       - name: Typecheck, test and build
         run: npm run check
       - name: Validate Cloudflare market proxy
