@@ -1,0 +1,125 @@
+.allocation-panel {
+  border-color: rgba(181, 204, 240, .2);
+  background: rgba(13, 29, 53, .84);
+}
+
+.allocation-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(5, 14, 28, .56);
+}
+
+.allocation-tab {
+  min-width: 0;
+  padding: 9px 6px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: #8f9fb7;
+  font-size: .75rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.allocation-tab--active {
+  border-color: rgba(181, 204, 240, .16);
+  background: rgba(220, 232, 255, .1);
+  color: #eef4ff;
+}
+
+.allocation-view-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.allocation-view-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.allocation-view-label,
+.allocation-position-count {
+  color: #8f9fb7;
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+.allocation-view-value {
+  font-size: clamp(1.6rem, 8vw, 2.45rem);
+  letter-spacing: -.035em;
+}
+
+.allocation-position-count {
+  padding-bottom: 4px;
+  text-align: right;
+}
+
+.allocation-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.allocation-kpi {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(181, 204, 240, .1);
+  border-radius: 14px;
+  background: rgba(5, 14, 28, .34);
+}
+
+.allocation-kpi-label {
+  color: #8f9fb7;
+  font-size: .7rem;
+  font-weight: 750;
+}
+
+.allocation-kpi-value {
+  font-size: 1.15rem;
+  letter-spacing: -.02em;
+}
+
+.allocation-kpi-note {
+  color: #72839c;
+  font-size: .65rem;
+  line-height: 1.3;
+}
+
+.allocation-scope-note {
+  margin: 4px 0 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(138, 180, 255, .07);
+  color: #a9bad3;
+  font-size: .75rem;
+  line-height: 1.4;
+}
+
+.allocation-coverage-warning {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+}
+
+.allocation-position-list {
+  margin-top: 2px;
+}
+
+@media (min-width: 680px) {
+  .allocation-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .allocation-tab {
+    font-size: .82rem;
+  }
+}
