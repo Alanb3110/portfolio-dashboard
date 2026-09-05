@@ -17,24 +17,30 @@ The Worker maps those IDs internally to:
 
 It does not accept arbitrary symbols, holdings, quantities, transaction rows, NAV, P&L, XIRR, PDF/CSV files, or portfolio identifiers.
 
-## Privacy and security
+## Privacy, abuse resistance and quota protection
 
 - `EODHD_API_TOKEN` is a Cloudflare secret and must never be committed.
-- Production CORS is limited to `https://alanb3110.github.io`.
-- Only `GET` and CORS `OPTIONS` are accepted.
-- Date ranges are capped at 370 days, consistent with the forward-v5 benchmark design and the free EODHD history window.
+- `/prices` requires the configured PWA `Origin`; requests without that origin are rejected. This is defense in depth, not authentication, because non-browser clients can spoof `Origin`.
+- Only the exact query parameters `benchmark`, `from` and `to` are accepted, each exactly once. Unknown or duplicate parameters are rejected instead of becoming cache-key variants.
+- Cache keys are rebuilt canonically from the validated benchmark/date tuple, independent of incoming query-string order.
+- Successful market responses are cached for 6 hours.
+- Only a cache miss can consume the `MARKET_RATE_LIMITER` binding. The production binding allows 4 upstream attempts per 60 seconds for the shared `eodhd-upstream` key.
+- The limiter is deliberately shared across both benchmarks so concurrent World/S&P refreshes count against one upstream burst budget.
+- Cloudflare rate limiting is local to a Cloudflare location and intentionally permissive/eventually consistent. It reduces burst abuse but is **not** an exact daily-accounting mechanism for the EODHD quota.
+- Date ranges are capped at 370 days; forward benchmark checkpoints keep normal requests bounded to the latest local checkpoint.
 - Upstream responses are reduced to `date` + `adjustedClose` before returning to the browser.
-- Successful market responses are cached for 6 hours to preserve the EODHD request quota.
 
 ## One-time Cloudflare setup
 
 The application can continue to be hosted on GitHub Pages. Only this small Worker needs Cloudflare.
 
 1. Create or sign in to a Cloudflare account.
-2. Create a Worker named `portfolio-market-proxy` (Workers & Pages -> Create -> Worker), or deploy this directory with Wrangler.
+2. Create a Worker named `portfolio-market-proxy`, or deploy this directory with Wrangler.
 3. Add a secret named `EODHD_API_TOKEN` containing the EODHD key.
-4. Deploy the Worker and copy its `https://...workers.dev` URL.
-5. Configure the PWA market adapter with that URL. Do not put the EODHD token in the PWA.
+4. Deploy using `worker/wrangler.toml`; it declares the `MARKET_RATE_LIMITER` binding.
+5. Copy the deployed `https://...workers.dev` URL into the reviewed PWA market adapter. Do not put the EODHD token in the PWA.
+
+The committed rate-limit namespace is `5101`. If that namespace ID is already used by another rate-limit binding in the same Cloudflare account and should not share counters, change it to another positive integer before deployment.
 
 ### Wrangler alternative
 
@@ -58,4 +64,4 @@ node --check worker/src/index.js
 node worker/smoke-test.mjs
 ```
 
-The smoke test verifies origin restriction, benchmark allow-listing, date-range limits, provider response sanitization, and that the API token is not returned to the client.
+The smoke test verifies origin restriction, strict query parameters, canonical cache reuse, rate limiting before upstream calls, benchmark allow-listing, date-range limits, provider response sanitization, and that the API token is not returned to the client.
