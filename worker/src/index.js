@@ -9,6 +9,7 @@ const CACHE_SECONDS = 6 * 60 * 60;
 const SERVICE_NAME = 'portfolio-market-proxy';
 const SERVICE_VERSION = '2026-09-05-v5.1-hardening';
 const PRICE_PARAMS = new Set(['benchmark', 'from', 'to']);
+const RATE_LIMIT_KEY = 'eodhd-upstream';
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -195,10 +196,17 @@ export default {
       return new Response(cached.body, { status: cached.status, headers });
     }
 
-    if (env.MARKET_RATE_LIMITER) {
-      const { success } = await env.MARKET_RATE_LIMITER.limit({ key: `prices:${benchmarkId}` });
-      if (!success) return json({ error: 'Market proxy rate limit exceeded.' }, 429, cors);
+    if (!env.MARKET_RATE_LIMITER || typeof env.MARKET_RATE_LIMITER.limit !== 'function') {
+      return json({ error: 'Market proxy rate limiter is not configured.' }, 503, cors);
     }
+
+    let limitResult;
+    try {
+      limitResult = await env.MARKET_RATE_LIMITER.limit({ key: RATE_LIMIT_KEY });
+    } catch {
+      return json({ error: 'Market proxy rate limiter is unavailable.' }, 503, cors);
+    }
+    if (!limitResult.success) return json({ error: 'Market proxy rate limit exceeded.' }, 429, cors);
 
     const result = await fetchBenchmark(benchmarkId, window.from, window.to, env);
     const headers = new Headers(result.response.headers);
