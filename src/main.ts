@@ -1,5 +1,6 @@
 import './styles.css';
-import { analyzePortfolio } from './analytics';
+import { analyzePortfolio, mainCashFlows } from './analytics';
+import { renderForwardBenchmarkPanel } from './benchmark-ui';
 import {
   buildHistoryBackup,
   compareHistorySnapshots,
@@ -14,7 +15,7 @@ import {
 } from './history';
 import { parseNetWorthPdf } from './net-worth';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
-import type { LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
+import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -71,6 +72,8 @@ function metric(label: string, value: string, subtext?: string): HTMLElement {
 
 let currentAnalysis: PortfolioAnalysis | null = null;
 let currentSnapshot: NetWorthSnapshot | null = null;
+let currentAudit: LedgerAudit | null = null;
+let currentMainFlows: CashFlow[] = [];
 let historySnapshots: HistorySnapshot[] = [];
 let historyAvailable = true;
 
@@ -92,7 +95,7 @@ privacy.append(
   element(
     'span',
     undefined,
-    ' Les PDF/CSV restent en mémoire. Seuls des snapshots dérivés sont conservés sur cet appareil si tu choisis explicitement de les enregistrer.',
+    ' Les PDF/CSV restent en mémoire. Seuls des snapshots dérivés sont conservés sur cet appareil si tu choisis explicitement de les enregistrer. Les appels marché ne contiennent que les identifiants publics World/S&P 500 et une plage de dates.',
   ),
 );
 
@@ -292,7 +295,7 @@ function renderQuality(audit: LedgerAudit, analysis: PortfolioAnalysis): HTMLEle
   return section;
 }
 
-function renderAnalysis(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot, audit: LedgerAudit): void {
+function renderAnalysis(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot, audit: LedgerAudit, flows: CashFlow[]): void {
   results.replaceChildren();
   const title = element('div', 'section-heading');
   const qualityStatus = analysis.warnings.length > 0 ? 'WARN' : analysis.mainXirr.status;
@@ -307,11 +310,16 @@ function renderAnalysis(analysis: PortfolioAnalysis, snapshot: NetWorthSnapshot,
     metric('Patrimoine Trade Republic', formatEur(analysis.totalNetWorth), 'Informationnel'),
   );
 
-  results.append(title, grid);
+  results.append(title, grid, renderForwardBenchmarkPanel(analysis, historySnapshots, flows));
   const comparison = renderHistoryComparison(analysis, snapshot);
   if (comparison) results.append(comparison);
   results.append(renderPositions(snapshot, analysis.mainValue), renderQuality(audit, analysis));
   results.hidden = false;
+}
+
+function rerenderCurrentAnalysis(): void {
+  if (!currentAnalysis || !currentSnapshot || !currentAudit) return;
+  renderAnalysis(currentAnalysis, currentSnapshot, currentAudit, currentMainFlows);
 }
 
 analyzeButton.addEventListener('click', async () => {
@@ -332,14 +340,19 @@ analyzeButton.addEventListener('click', async () => {
     const audit = auditLedger(ledger);
     const snapshot = await parseNetWorthPdf(pdfFile);
     const analysis = analyzePortfolio(ledger, snapshot);
+    const flows = mainCashFlows(ledger);
     currentAnalysis = analysis;
     currentSnapshot = snapshot;
+    currentAudit = audit;
+    currentMainFlows = flows;
     await refreshHistory();
-    renderAnalysis(analysis, snapshot, audit);
+    renderAnalysis(analysis, snapshot, audit, flows);
     status.textContent = 'Analyse terminée. Les fichiers bruts n’ont pas quitté cet appareil et ne sont pas sauvegardés.';
   } catch (error) {
     currentAnalysis = null;
     currentSnapshot = null;
+    currentAudit = null;
+    currentMainFlows = [];
     setHistoryControls();
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
@@ -353,6 +366,7 @@ saveSnapshotButton.addEventListener('click', async () => {
   try {
     await saveHistorySnapshot(createHistorySnapshot(currentAnalysis, currentSnapshot));
     await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
+    rerenderCurrentAnalysis();
     status.textContent = 'Snapshot dérivé enregistré sur cet appareil. Les PDF/CSV restent non persistés.';
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -386,6 +400,7 @@ backupInput.addEventListener('change', async () => {
     historyAvailable = true;
     setHistoryControls();
     renderHistoryList();
+    rerenderCurrentAnalysis();
     historyStatus.textContent = `${backup.snapshots.length} snapshot(s) importé(s) ; ${historySnapshots.length} date(s) disponible(s) après fusion.`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -400,6 +415,7 @@ eraseHistoryButton.addEventListener('click', async () => {
   try {
     await eraseHistorySnapshots();
     await refreshHistory('Historique local effacé.');
+    rerenderCurrentAnalysis();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     historyStatus.textContent = `Échec de l’effacement : ${message}`;
