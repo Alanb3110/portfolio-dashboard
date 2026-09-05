@@ -44,8 +44,35 @@ assert.equal(health.headers.get('Access-Control-Allow-Origin'), env.ALLOWED_ORIG
 assert.deepEqual(await health.json(), {
   ok: true,
   service: 'portfolio-market-proxy',
-  version: '2026-09-05-v5.1-hardening',
+  version: '2026-09-05-v5.1-readiness',
+  providerConfigured: true,
+  rateLimiterConfigured: true,
 });
+
+const missingProviderHealth = await worker.fetch(
+  new Request('https://proxy.example/health', { headers: { Origin: env.ALLOWED_ORIGIN } }),
+  { ...env, EODHD_API_TOKEN: undefined },
+  ctx,
+);
+assert.equal(missingProviderHealth.status, 503);
+assert.deepEqual(await missingProviderHealth.json(), {
+  ok: false,
+  service: 'portfolio-market-proxy',
+  version: '2026-09-05-v5.1-readiness',
+  providerConfigured: false,
+  rateLimiterConfigured: true,
+});
+
+const missingLimiterHealth = await worker.fetch(
+  new Request('https://proxy.example/health', { headers: { Origin: env.ALLOWED_ORIGIN } }),
+  { ...env, MARKET_RATE_LIMITER: undefined },
+  ctx,
+);
+assert.equal(missingLimiterHealth.status, 503);
+const missingLimiterPayload = await missingLimiterHealth.json();
+assert.equal(missingLimiterPayload.ok, false);
+assert.equal(missingLimiterPayload.providerConfigured, true);
+assert.equal(missingLimiterPayload.rateLimiterConfigured, false);
 
 const blockedOrigin = await worker.fetch(
   new Request('https://proxy.example/prices?benchmark=msci-world&from=2026-08-01&to=2026-08-30', {
