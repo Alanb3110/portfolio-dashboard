@@ -6,6 +6,16 @@ Main portfolio = Compte-titres + PEA.
 
 Cash is excluded from main performance. Therefore trades between securities and the excluded cash account are external cash flows relative to the main holdings-only scope.
 
+## Snapshot cutoff
+
+The official Net Worth PDF snapshot date is the terminal date of the analysis.
+
+Only ledger rows with:
+
+`transaction.date <= snapshot.snapshotDate`
+
+may contribute to portfolio P&L, XIRR or any other terminal-snapshot metric. Rows after the snapshot are ignored and reported as a data-quality warning. This rule prevents a newer transaction CSV from introducing look-ahead into an older Net Worth snapshot.
+
 ## Transaction normalization
 
 For each transaction:
@@ -36,7 +46,7 @@ This is an understandable realized + unrealized euro contribution. It is not fac
 
 For cash flows `CF_i` at dates `t_i`, solve `r > -1` such that:
 
-`XNPV(r) = sum(CF_i / (1+r)^((t_i-t_0)/365.25)) = 0`
+`XNPV(r) = sum(CF_i / (1+r)^((t_i-t_0)/365)) = 0`
 
 The current main value is appended as a positive terminal cash flow on the Net Worth snapshot date.
 
