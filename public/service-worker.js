@@ -1,19 +1,31 @@
-const CACHE = 'portfolio-dashboard-v5-alpha1';
-const BASE = new URL('./', self.location.href).pathname;
-const APP_SHELL = [BASE, `${BASE}manifest.webmanifest`, `${BASE}icon.svg`];
+const CACHE_PREFIX = 'portfolio-dashboard-';
+const CACHE_VERSION = '__PORTFOLIO_CACHE_VERSION__';
+const CACHE = `${CACHE_PREFIX}${CACHE_VERSION}`;
+const BASE_URL = new URL('./', self.location.href);
+const BASE = BASE_URL.pathname;
+const PRECACHE_RELATIVE = /*__PORTFOLIO_PRECACHE__*/ [];
+const APP_SHELL = PRECACHE_RELATIVE.map((relativePath) => new URL(relativePath || './', BASE_URL).toString());
+const APP_SHELL_SET = new Set(APP_SHELL);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    const requests = APP_SHELL.map((url) => new Request(url, { cache: 'reload' }));
+    await cache.addAll(requests);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
-    ),
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE)
+        .map((key) => caches.delete(key)),
+    );
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -23,21 +35,34 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
-        return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        if (request.mode === 'navigate') {
-          const shell = await caches.match(BASE);
-          if (shell) return shell;
-        }
-        return Response.error();
-      }),
-  );
+  if (request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        return await fetch(request);
+      } catch {
+        const cache = await caches.open(CACHE);
+        return (await cache.match(BASE)) ?? Response.error();
+      }
+    })());
+    return;
+  }
+
+  if (APP_SHELL_SET.has(url.toString())) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      return fetch(request);
+    })());
+    return;
+  }
+
+  event.respondWith((async () => {
+    try {
+      return await fetch(request);
+    } catch {
+      const cache = await caches.open(CACHE);
+      return (await cache.match(request)) ?? Response.error();
+    }
+  })());
 });
