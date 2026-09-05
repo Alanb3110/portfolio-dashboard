@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build",
+    "deploy:worker": "wrangler deploy"
   },
   "dependencies": {
     "pdfjs-dist": "6.3.289"
@@ -17,7 +18,8 @@
   "devDependencies": {
     "typescript": "7.0.2",
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "wrangler": "4.129.0"
   },
   "engines": {
     "node": ">=22.12"
