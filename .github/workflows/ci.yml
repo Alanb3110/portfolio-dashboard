@@ -19,11 +19,13 @@ jobs:
         with:
           node-version: '22'
       - name: Install dependencies
-        run: |
-          npm install --ignore-scripts --legacy-peer-deps
-          echo '---PACKAGE-LOCK-BEGIN---'
-          cat package-lock.json
-          echo '---PACKAGE-LOCK-END---'
+        run: npm install --ignore-scripts --legacy-peer-deps
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-package-lock
+          path: package-lock.json
+          if-no-files-found: error
       - name: Typecheck, test and build
         run: npm run check
       - name: Validate Cloudflare market proxy
