@@ -6,6 +6,8 @@ const BENCHMARKS = Object.freeze({
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 370;
 const CACHE_SECONDS = 6 * 60 * 60;
+const SERVICE_NAME = 'portfolio-market-proxy';
+const SERVICE_VERSION = '2026-09-05';
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -143,7 +145,9 @@ export default {
     if (request.method !== 'GET') return json({ error: 'Method not allowed.' }, 405, cors);
 
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ ok: true }, 200, cors);
+    if (url.pathname === '/health') {
+      return json({ ok: true, service: SERVICE_NAME, version: SERVICE_VERSION }, 200, cors);
+    }
     if (url.pathname !== '/prices') return json({ error: 'Not found.' }, 404, cors);
 
     const benchmarkId = url.searchParams.get('benchmark') || '';
