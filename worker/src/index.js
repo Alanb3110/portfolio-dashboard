@@ -7,7 +7,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 370;
 const CACHE_SECONDS = 6 * 60 * 60;
 const SERVICE_NAME = 'portfolio-market-proxy';
-const SERVICE_VERSION = '2026-09-05';
+const SERVICE_VERSION = '2026-09-05-v5.1-hardening';
+const PRICE_PARAMS = new Set(['benchmark', 'from', 'to']);
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -48,6 +49,27 @@ function validateWindow(fromRaw, toRaw) {
   const days = Math.round((to.getTime() - from.getTime()) / 86_400_000);
   if (days > MAX_RANGE_DAYS) return { ok: false, error: `Date range exceeds ${MAX_RANGE_DAYS} days.` };
   return { ok: true, from: fromRaw, to: toRaw };
+}
+
+function validatePriceParams(url) {
+  for (const key of url.searchParams.keys()) {
+    if (!PRICE_PARAMS.has(key)) return { ok: false, error: `Unknown query parameter: ${key}.` };
+  }
+  for (const key of PRICE_PARAMS) {
+    if (url.searchParams.getAll(key).length !== 1) {
+      return { ok: false, error: `Query parameter ${key} must appear exactly once.` };
+    }
+  }
+  return { ok: true };
+}
+
+function canonicalCacheKey(requestUrl, benchmarkId, from, to) {
+  const url = new URL(requestUrl);
+  url.search = '';
+  url.searchParams.set('benchmark', benchmarkId);
+  url.searchParams.set('from', from);
+  url.searchParams.set('to', to);
+  return new Request(url.toString(), { method: 'GET' });
 }
 
 function sanitizeRows(payload) {
@@ -136,19 +158,27 @@ export default {
     const cors = corsHeaders(request, env);
     const origin = request.headers.get('Origin');
     const allowed = env.ALLOWED_ORIGIN || 'https://alanb3110.github.io';
-
-    if (origin && origin !== allowed) return json({ error: 'Origin not allowed.' }, 403, cors);
+    const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
+      if (origin !== allowed) return json({ error: 'Origin not allowed.' }, 403, cors);
       return new Response(null, { status: 204, headers: cors });
     }
     if (request.method !== 'GET') return json({ error: 'Method not allowed.' }, 405, cors);
 
-    const url = new URL(request.url);
     if (url.pathname === '/health') {
+      if (origin && origin !== allowed) return json({ error: 'Origin not allowed.' }, 403, cors);
       return json({ ok: true, service: SERVICE_NAME, version: SERVICE_VERSION }, 200, cors);
     }
     if (url.pathname !== '/prices') return json({ error: 'Not found.' }, 404, cors);
+
+    // /prices is a browser-facing endpoint for the PWA, not a public market-data API.
+    // Requiring the expected Origin is defense in depth; it is not authentication because
+    // non-browser clients can spoof Origin. Canonical caching and rate limiting remain required.
+    if (origin !== allowed) return json({ error: 'Origin not allowed.' }, 403, cors);
+
+    const params = validatePriceParams(url);
+    if (!params.ok) return json({ error: params.error }, 400, cors);
 
     const benchmarkId = url.searchParams.get('benchmark') || '';
     if (!(benchmarkId in BENCHMARKS)) return json({ error: 'Unknown benchmark.' }, 404, cors);
@@ -157,14 +187,17 @@ export default {
     if (!window.ok) return json({ error: window.error }, 400, cors);
 
     const cache = caches.default;
-    const cacheKeyUrl = new URL(request.url);
-    cacheKeyUrl.searchParams.sort();
-    const cacheKey = new Request(cacheKeyUrl.toString(), { method: 'GET' });
+    const cacheKey = canonicalCacheKey(request.url, benchmarkId, window.from, window.to);
     const cached = await cache.match(cacheKey);
     if (cached) {
       const headers = new Headers(cached.headers);
       for (const [key, value] of Object.entries(cors)) headers.set(key, value);
       return new Response(cached.body, { status: cached.status, headers });
+    }
+
+    if (env.MARKET_RATE_LIMITER) {
+      const { success } = await env.MARKET_RATE_LIMITER.limit({ key: `prices:${benchmarkId}` });
+      if (!success) return json({ error: 'Market proxy rate limit exceeded.' }, 429, cors);
     }
 
     const result = await fetchBenchmark(benchmarkId, window.from, window.to, env);
