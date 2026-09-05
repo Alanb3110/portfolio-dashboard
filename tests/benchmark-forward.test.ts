@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { BENCHMARKS, type BenchmarkPricePoint } from '../src/benchmark';
-import { forwardBenchmarkRequestWindow, replayBenchmarkFromBaseline } from '../src/benchmark-forward';
+import {
+  checkpointBenchmarkRequestWindow,
+  checkpointFromReplay,
+  forwardBenchmarkRequestWindow,
+  replayBenchmarkFromBaseline,
+  replayBenchmarkFromCheckpoint,
+} from '../src/benchmark-forward';
 
 const world = BENCHMARKS['msci-world'];
 
@@ -103,5 +109,96 @@ describe('forward benchmark baseline', () => {
     expect(replay.status).toBe('PASS');
     expect(replay.terminalValue).toBe(1000);
     expect(replay.xirr.status).toBe('N/A');
+  });
+});
+
+describe('forward benchmark checkpoints', () => {
+  it('advances synthetic units without requesting prices back to the original baseline', () => {
+    const baseline = { snapshotDate: '2026-08-03', mainValue: 1000 };
+    const allFlows = [
+      { date: '2026-08-10', amount: -200 },
+      { date: '2027-01-15', amount: -100 },
+    ];
+    const initial = replayBenchmarkFromBaseline(
+      world,
+      baseline,
+      allFlows,
+      '2026-08-31',
+      prices([
+        ['2026-08-03', 100],
+        ['2026-08-10', 110],
+        ['2026-08-31', 120],
+      ]),
+    );
+    const checkpoint = checkpointFromReplay(baseline, '2026-08-31', initial);
+    expect(checkpoint).not.toBeNull();
+
+    const advanced = replayBenchmarkFromCheckpoint(
+      world,
+      baseline,
+      checkpoint!,
+      allFlows,
+      '2027-08-31',
+      prices([
+        ['2027-01-15', 125],
+        ['2027-08-31', 140],
+      ]),
+    );
+
+    expect(advanced.status).toBe('PASS');
+    expect(advanced.units).toBeCloseTo((initial.units ?? 0) + 100 / 125, 12);
+    expect(advanced.terminalValue).toBeCloseTo(((initial.units ?? 0) + 100 / 125) * 140, 12);
+    expect(advanced.note).toMatch(/Advanced local benchmark checkpoint/);
+  });
+
+  it('requests only from the last checkpoint onward', () => {
+    expect(checkpointBenchmarkRequestWindow('2026-08-31', '2027-08-31')).toEqual({
+      from: '2026-08-31',
+      to: '2027-08-31',
+    });
+  });
+
+  it('can reuse a checkpoint on its own as-of date without market prices', () => {
+    const baseline = { snapshotDate: '2026-08-03', mainValue: 1000 };
+    const initial = replayBenchmarkFromBaseline(
+      world,
+      baseline,
+      [],
+      '2026-08-31',
+      prices([
+        ['2026-08-03', 100],
+        ['2026-08-31', 120],
+      ]),
+    );
+    const checkpoint = checkpointFromReplay(baseline, '2026-08-31', initial)!;
+    const reused = replayBenchmarkFromCheckpoint(world, baseline, checkpoint, [], '2026-08-31', []);
+    expect(reused.terminalValue).toBeCloseTo(initial.terminalValue ?? 0, 12);
+    expect(reused.units).toBeCloseTo(initial.units ?? 0, 12);
+    expect(reused.note).toMatch(/Reused local benchmark checkpoint/);
+  });
+
+  it('rejects a checkpoint tied to a different baseline value', () => {
+    const baseline = { snapshotDate: '2026-08-03', mainValue: 1000 };
+    const initial = replayBenchmarkFromBaseline(
+      world,
+      baseline,
+      [],
+      '2026-08-31',
+      prices([
+        ['2026-08-03', 100],
+        ['2026-08-31', 120],
+      ]),
+    );
+    const checkpoint = checkpointFromReplay(baseline, '2026-08-31', initial)!;
+    const incompatible = replayBenchmarkFromCheckpoint(
+      world,
+      { snapshotDate: '2026-08-03', mainValue: 1001 },
+      checkpoint,
+      [],
+      '2026-09-01',
+      prices([['2026-09-01', 121]]),
+    );
+    expect(incompatible.status).toBe('N/A');
+    expect(incompatible.note).toMatch(/incompatible/i);
   });
 });
