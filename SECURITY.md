@@ -21,16 +21,16 @@ Portfolio Dashboard processes financial exports and therefore treats imported da
 - Exported backup files are sensitive personal financial data and must not be committed to this repository.
 - No analytics, trackers or third-party scripts are allowed.
 - No user-derived string is rendered through `innerHTML`.
-- External market access is explicit and limited to reviewed adapters.
+- External market access is limited to the reviewed Cloudflare benchmark proxy.
 - A market endpoint must never receive portfolio quantities, values, transaction rows or imported files.
 
 ## Market-data secret boundary
 
-Direct browser access to EODHD is diagnostic-only and is not the production architecture. EODHD documentation requires API tokens to remain secret, so production benchmark requests are routed through the restricted Cloudflare Worker under `worker/`.
+The browser never receives the EODHD API token. Production benchmark requests are routed through the restricted Cloudflare Worker under `worker/`.
 
 The Worker:
 
-- stores `EODHD_API_TOKEN` only as a Cloudflare secret;
+- stores `EODHD_API_TOKEN` only as a Cloudflare runtime secret;
 - accepts only the public benchmark IDs `msci-world` and `sp500`;
 - maps them internally to `EUNL.XETRA` and `SXR8.XETRA`;
 - accepts only a bounded public date range;
@@ -38,7 +38,7 @@ The Worker:
 - restricts browser CORS to `https://alanb3110.github.io`;
 - has no route or schema capable of accepting portfolio payloads.
 
-The direct EODHD browser diagnostic should be removed from the deployed PWA once the Worker integration is validated.
+The PWA Content Security Policy allows market connections only to `https://portfolio-market-proxy.alan-boulard.workers.dev`; direct browser access to EODHD is not part of the production application.
 
 ## Storage limitations
 
