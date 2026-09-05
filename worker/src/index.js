@@ -7,7 +7,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 370;
 const CACHE_SECONDS = 6 * 60 * 60;
 const SERVICE_NAME = 'portfolio-market-proxy';
-const SERVICE_VERSION = '2026-09-05-v5.1-hardening';
+const SERVICE_VERSION = '2026-09-05-v5.1-readiness';
 const PRICE_PARAMS = new Set(['benchmark', 'from', 'to']);
 const RATE_LIMIT_KEY = 'eodhd-upstream';
 
@@ -34,6 +34,16 @@ function corsHeaders(request, env) {
     };
   }
   return { Vary: 'Origin' };
+}
+
+function runtimeReadiness(env) {
+  const providerConfigured = typeof env.EODHD_API_TOKEN === 'string' && env.EODHD_API_TOKEN.length > 0;
+  const rateLimiterConfigured = Boolean(env.MARKET_RATE_LIMITER && typeof env.MARKET_RATE_LIMITER.limit === 'function');
+  return {
+    ready: providerConfigured && rateLimiterConfigured,
+    providerConfigured,
+    rateLimiterConfigured,
+  };
 }
 
 function parseDate(value) {
@@ -169,7 +179,18 @@ export default {
 
     if (url.pathname === '/health') {
       if (origin && origin !== allowed) return json({ error: 'Origin not allowed.' }, 403, cors);
-      return json({ ok: true, service: SERVICE_NAME, version: SERVICE_VERSION }, 200, cors);
+      const readiness = runtimeReadiness(env);
+      return json(
+        {
+          ok: readiness.ready,
+          service: SERVICE_NAME,
+          version: SERVICE_VERSION,
+          providerConfigured: readiness.providerConfigured,
+          rateLimiterConfigured: readiness.rateLimiterConfigured,
+        },
+        readiness.ready ? 200 : 503,
+        cors,
+      );
     }
     if (url.pathname !== '/prices') return json({ error: 'Not found.' }, 404, cors);
 

@@ -6,6 +6,9 @@ workers_dev = true
 [vars]
 ALLOWED_ORIGIN = "https://alanb3110.github.io"
 
+[secrets]
+required = [ "EODHD_API_TOKEN" ]
+
 [[ratelimits]]
 name = "MARKET_RATE_LIMITER"
 namespace_id = "5101"
