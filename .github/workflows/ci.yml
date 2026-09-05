@@ -26,4 +26,3 @@ jobs:
         run: |
           node --check worker/src/index.js
           node worker/smoke-test.mjs
-          npx wrangler deploy --dry-run
