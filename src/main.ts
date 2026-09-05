@@ -13,6 +13,7 @@ import {
   saveHistorySnapshot,
   type HistorySnapshot,
 } from './history';
+import { attachHistoryProvenance } from './history-provenance';
 import { parseNetWorthPdf } from './net-worth';
 import { selectLatestTradeRepublicSources, sourcePairFingerprint } from './source-refresh';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
@@ -93,6 +94,7 @@ let currentAnalysis: PortfolioAnalysis | null = null;
 let currentSnapshot: NetWorthSnapshot | null = null;
 let currentAudit: LedgerAudit | null = null;
 let currentMainFlows: CashFlow[] = [];
+let currentSourceFingerprint: string | null = null;
 let historySnapshots: HistorySnapshot[] = [];
 let historyAvailable = true;
 
@@ -379,6 +381,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     currentSnapshot = snapshot;
     currentAudit = audit;
     currentMainFlows = flows;
+    currentSourceFingerprint = fingerprint ?? null;
     await refreshHistory();
     renderAnalysis(analysis, snapshot, audit, flows);
     if (fingerprint) writeLastSourceFingerprint(fingerprint);
@@ -388,6 +391,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     currentSnapshot = null;
     currentAudit = null;
     currentMainFlows = [];
+    currentSourceFingerprint = null;
     setHistoryControls();
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
@@ -444,7 +448,12 @@ analyzeButton.addEventListener('click', async () => {
 saveSnapshotButton.addEventListener('click', async () => {
   if (!currentAnalysis || !currentSnapshot) return;
   try {
-    await saveHistorySnapshot(createHistorySnapshot(currentAnalysis, currentSnapshot));
+    const historyRecord = attachHistoryProvenance(
+      createHistorySnapshot(currentAnalysis, currentSnapshot),
+      currentSourceFingerprint,
+      currentAudit,
+    );
+    await saveHistorySnapshot(historyRecord);
     await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
     rerenderCurrentAnalysis();
     status.textContent = 'Snapshot dérivé enregistré sur cet appareil. Les PDF/CSV restent non persistés.';
