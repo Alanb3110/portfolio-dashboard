@@ -17,9 +17,22 @@ The Worker maps those IDs internally to:
 
 It does not accept arbitrary symbols, holdings, quantities, transaction rows, NAV, P&L, XIRR, PDF/CSV files, or portfolio identifiers.
 
+## Deployment layout
+
+The canonical Worker implementation lives under `worker/`, but the repository intentionally contains **two equivalent Wrangler entry configurations**:
+
+- `/wrangler.toml` for Cloudflare Workers Builds when its project root is the repository root;
+- `/worker/wrangler.toml` for local/explicit deployments from the Worker directory.
+
+The root configuration points to `worker/src/index.js`; the nested configuration points to `src/index.js`. `worker/check-config.mjs` is run by CI and fails if the two deployment configurations drift apart.
+
+This duplication is intentional. On 2026-09-05, Workers Builds was observed deploying from the repository root while the Wrangler file existed only under `/worker`, which caused automatic Worker deployments to fail even though application CI and GitHub Pages remained healthy. Keeping both entry configurations makes the deployment robust to either Cloudflare project-root setting.
+
+`worker/package.json` also pins the Wrangler version used when the Cloudflare project root is `/worker`.
+
 ## Health and readiness
 
-`GET /health` now validates the runtime bindings required by `/prices`, not only the deployed code version. A healthy response is HTTP 200 with:
+`GET /health` validates the runtime bindings required by `/prices`, not only the deployed code version. A healthy response is HTTP 200 with:
 
 ```json
 {
@@ -36,7 +49,7 @@ If the EODHD secret or rate-limiter binding is missing, `/health` returns HTTP 5
 ## Privacy, abuse resistance and quota protection
 
 - `EODHD_API_TOKEN` is a Cloudflare secret and must never be committed.
-- `worker/wrangler.toml` declares `EODHD_API_TOKEN` as a required secret. Wrangler deployment/version upload must fail instead of publishing a Worker without the provider credential.
+- Both Wrangler configurations declare `EODHD_API_TOKEN` as a required secret. Wrangler deployment/version upload must fail instead of publishing a Worker without the provider credential.
 - `/prices` requires the configured PWA `Origin`; requests without that origin are rejected. This is defense in depth, not authentication, because non-browser clients can spoof `Origin`.
 - Only the exact query parameters `benchmark`, `from` and `to` are accepted, each exactly once. Unknown or duplicate parameters are rejected instead of becoming cache-key variants.
 - Cache keys are rebuilt canonically from the validated benchmark/date tuple, independent of incoming query-string order.
@@ -52,13 +65,14 @@ If the EODHD secret or rate-limiter binding is missing, `/health` returns HTTP 5
 The application can continue to be hosted on GitHub Pages. Only this small Worker needs Cloudflare.
 
 1. Create or sign in to a Cloudflare account.
-2. Create a Worker named `portfolio-market-proxy`, or deploy this directory with Wrangler.
-3. Add a secret named `EODHD_API_TOKEN` containing the EODHD key.
-4. Deploy using `worker/wrangler.toml`; it declares both the required secret name and the `MARKET_RATE_LIMITER` binding.
-5. Verify `/health` reports `ok: true`, `providerConfigured: true` and `rateLimiterConfigured: true` before accepting the deployment.
-6. Copy the deployed `https://...workers.dev` URL into the reviewed PWA market adapter. Do not put the EODHD token in the PWA.
+2. Create/connect a Worker named `portfolio-market-proxy` to this repository.
+3. Add a runtime secret named `EODHD_API_TOKEN` containing the EODHD key.
+4. Production branch: `main`.
+5. The Cloudflare project root may be `/` or `/worker`; both are supported by the repository. The repository-root configuration is the preferred default for the current Git integration.
+6. Keep the deploy command as `npx wrangler deploy` unless there is a deliberate reason to override it.
+7. Verify the Workers Build check is green and `/health` reports `ok: true`, `providerConfigured: true` and `rateLimiterConfigured: true` before accepting the deployment.
 
-The committed rate-limit namespace is `5101`. If that namespace ID is already used by another rate-limit binding in the same Cloudflare account and should not share counters, change it to another positive integer before deployment.
+The committed rate-limit namespace is `5101`. If that namespace ID is already used by another rate-limit binding in the same Cloudflare account and should not share counters, change it to another positive integer in both Wrangler configurations before deployment.
 
 ### Wrangler alternative
 
@@ -68,7 +82,8 @@ From the repository root on a machine with Node.js:
 npx wrangler login
 cd worker
 npx wrangler secret put EODHD_API_TOKEN
-npx wrangler deploy
+npm install
+npm run deploy
 ```
 
 The token is entered interactively by Wrangler and is stored as a Cloudflare secret, not in Git.
@@ -80,6 +95,7 @@ Repository CI runs:
 ```bash
 node --check worker/src/index.js
 node worker/smoke-test.mjs
+node worker/check-config.mjs
 ```
 
-The smoke test verifies runtime readiness, origin restriction, strict query parameters, canonical cache reuse, rate limiting before upstream calls, benchmark allow-listing, date-range limits, provider response sanitization, and that the API token is not returned to the client.
+The smoke test verifies runtime readiness, origin restriction, strict query parameters, canonical cache reuse, rate limiting before upstream calls, benchmark allow-listing, date-range limits, provider response sanitization, and that the API token is not returned to the client. The config check verifies that both Wrangler entry configurations remain equivalent.
