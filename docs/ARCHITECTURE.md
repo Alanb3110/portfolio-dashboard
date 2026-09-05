@@ -57,11 +57,17 @@ A market-data adapter will be added after the deterministic local core is accept
 IndexedDB stores only a versioned derived snapshot containing:
 
 - snapshot date and save timestamp;
+- methodology version and ledger cutoff date;
+- nullable provenance fields reserved for source fingerprint / ledger coverage;
 - current main / extended / total values;
 - simple economic P&L and selected XIRR root;
 - Trade Republic pocket totals;
 - main-position values and allocation weights.
 
-It does **not** store PDF/CSV bytes or the raw/normalized transaction history. Same-date saves deterministically replace the older save. Backup export/import uses an explicit versioned JSON schema; malformed or unsupported schemas are rejected rather than guessed.
+Position identities are scoped by pocket (`PEA:symbol` / `Compte-titres:symbol`) so the same security held in both accounts remains distinct.
+
+History schema v2 is the current write format. Existing v1 IndexedDB records and exported backups are migrated in memory when read, marked with methodology `5.0-legacy`, and retained. The IndexedDB object-store layout is unchanged, so the migration is non-destructive.
+
+The history store does **not** contain PDF/CSV bytes or the raw/normalized transaction history. Same-date saves deterministically replace the older save. Backup export/import uses an explicit versioned JSON schema; malformed or unsupported schemas are rejected rather than guessed.
 
 The browser database is a working local history, not a guaranteed backup. The UI therefore provides explicit export, import and erase controls. Snapshot-to-snapshot value changes are labelled as gross changes because they include contributions/withdrawals and are not portfolio returns.
