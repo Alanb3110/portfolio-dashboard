@@ -1,0 +1,9 @@
+{
+  "name": "portfolio-market-proxy",
+  "main": "worker/src/index.js",
+  "compatibility_date": "2026-08-30",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGIN": "https://alanb3110.github.io"
+  }
+}
