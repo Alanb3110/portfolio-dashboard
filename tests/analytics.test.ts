@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzePortfolio, solveXirr, xnpv } from '../src/analytics';
+import { analyzePortfolio, forwardPortfolioXirr, solveXirr, xnpv } from '../src/analytics';
 import type { LedgerRow, NetWorthSnapshot } from '../src/domain';
 
 function trade(overrides: Partial<LedgerRow> = {}): LedgerRow {
@@ -77,6 +77,29 @@ describe('XIRR', () => {
     ];
     const result = solveXirr(flows);
     expect(Math.abs(xnpv(result.selectedRoot ?? 0, flows))).toBeLessThan(1e-6);
+  });
+
+  it('computes a forward XIRR on the same baseline and flow window as the benchmark', () => {
+    const result = forwardPortfolioXirr(
+      '2025-01-01',
+      1000,
+      [
+        { date: '2024-12-01', amount: -500 },
+        { date: '2025-06-01', amount: -100 },
+      ],
+      '2026-01-01',
+      1210,
+    );
+    expect(result.status).toBe('PASS');
+    expect(result.selectedRoot).not.toBeNull();
+    // Baseline 1000 + matched 100 contribution becomes 1210 after one year.
+    expect(result.selectedRoot ?? 0).toBeGreaterThan(0.09);
+    expect(result.selectedRoot ?? 0).toBeLessThan(0.11);
+  });
+
+  it('returns N/A when the forward baseline is the same day as the terminal snapshot', () => {
+    const result = forwardPortfolioXirr('2026-01-01', 1000, [], '2026-01-01', 1000);
+    expect(result.status).toBe('N/A');
   });
 });
 
