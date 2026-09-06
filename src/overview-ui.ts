@@ -78,8 +78,7 @@ function enhanceOverview(): boolean {
 
   const refreshButton = importPanel.querySelector<HTMLButtonElement>('.primary-button');
   const importStatus = importPanel.querySelector<HTMLElement>('.status');
-  const saveSnapshotButton = historyPanel.querySelector<HTMLButtonElement>('.action-grid .secondary-button');
-  if (!refreshButton || !importStatus || !saveSnapshotButton) return false;
+  if (!refreshButton || !importStatus) return false;
 
   shell.dataset.overviewEnhanced = 'true';
   shell.classList.add('dashboard-shell');
@@ -101,16 +100,14 @@ function enhanceOverview(): boolean {
   const actionLabel = document.createElement('span');
   actionLabel.textContent = 'Sources locales';
   const actionHint = document.createElement('span');
-  actionHint.textContent = 'Actualise puis lis le dashboard.';
+  actionHint.textContent = 'Un geste : analyse + historique local.';
   actionHeading.append(actionLabel, actionHint);
 
   const actionRow = document.createElement('div');
   actionRow.className = 'quick-actions-row';
+  actionRow.style.gridTemplateColumns = '1fr';
   refreshButton.classList.add('quick-refresh-button');
-  saveSnapshotButton.classList.add('quick-save-button');
-  saveSnapshotButton.textContent = 'Enregistrer';
-  saveSnapshotButton.title = 'Enregistrer le snapshot dérivé dans l’historique local';
-  actionRow.append(refreshButton, saveSnapshotButton);
+  actionRow.append(refreshButton);
   importStatus.classList.add('quick-status');
   quickActions.append(actionHeading, actionRow, importStatus);
 
