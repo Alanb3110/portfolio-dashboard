@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { webcrypto } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 import 'fake-indexeddb/auto';
-import ts from 'typescript';
 
+const execFileAsync = promisify(execFile);
 const root = process.cwd();
 const distDir = path.join(root, 'dist');
 const html = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
@@ -76,19 +78,40 @@ function syntheticSnapshot(index, total = 100) {
 }
 
 async function importHistorySource() {
-  const source = await fs.readFile(path.join(root, 'src', 'history.ts'), 'utf8');
-  const transpiled = ts.transpileModule(source, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ES2022,
-    },
-    fileName: 'history.ts',
-  }).outputText;
-  const tempPath = path.join(root, '.depth-history.mjs');
-  await fs.writeFile(tempPath, transpiled, 'utf8');
-  const module = await import(`${pathToFileURL(tempPath).href}?depth=${Date.now()}`);
-  await fs.rm(tempPath, { force: true });
-  return module;
+  const tempDir = path.join(root, '.depth-history-build');
+  await fs.rm(tempDir, { recursive: true, force: true });
+  const tscPath = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+  await execFileAsync(process.execPath, [
+    tscPath,
+    path.join(root, 'src', 'history.ts'),
+    '--target', 'ES2022',
+    '--module', 'ES2022',
+    '--moduleResolution', 'Bundler',
+    '--skipLibCheck', 'true',
+    '--outDir', tempDir,
+    '--noEmit', 'false',
+  ], { cwd: root });
+
+  const candidates = [
+    path.join(tempDir, 'history.js'),
+    path.join(tempDir, 'src', 'history.js'),
+  ];
+  let tempPath = null;
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      tempPath = candidate;
+      break;
+    } catch {
+      // Try the next deterministic tsc output layout.
+    }
+  }
+  assert.ok(tempPath, 'Temporary history.js must be emitted by the local TypeScript compiler.');
+  try {
+    return await import(`${pathToFileURL(tempPath).href}?depth=${Date.now()}`);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 const history = await importHistorySource();
