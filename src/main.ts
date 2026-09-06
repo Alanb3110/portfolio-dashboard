@@ -15,7 +15,8 @@ import {
 } from './history';
 import { attachHistoryProvenance } from './history-provenance';
 import { parseNetWorthPdf } from './net-worth';
-import { selectLatestTradeRepublicSources, sourcePairFingerprint } from './source-refresh';
+import { selectLatestTradeRepublicSourcesByContent, sourcePairFingerprint } from './source-refresh';
+import { publishUiSnapshot } from './snapshot-bridge';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
 
@@ -126,7 +127,7 @@ importSection.append(
   element(
     'p',
     'muted-block',
-    'Sur iPhone, « Actualiser depuis le dossier » permet de sélectionner Portfolio Dashboard une seule fois par actualisation ; l’app choisit ensuite automatiquement les exports Trade Republic les plus récents du dossier.',
+    'Sur iPhone, « Actualiser depuis le dossier » inspecte les exports Trade Republic du dossier et privilégie la date réelle du relevé PDF et la couverture du CSV plutôt que le seul horodatage du fichier.',
   ),
 );
 
@@ -382,6 +383,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     currentAudit = audit;
     currentMainFlows = flows;
     currentSourceFingerprint = fingerprint ?? null;
+    publishUiSnapshot(snapshot);
     await refreshHistory();
     renderAnalysis(analysis, snapshot, audit, flows);
     if (fingerprint) writeLastSourceFingerprint(fingerprint);
@@ -409,8 +411,30 @@ folderInput.addEventListener('change', async () => {
   if (files.length === 0) return;
 
   try {
-    const pair = selectLatestTradeRepublicSources(files);
-    status.textContent = `Vérification de ${pair.csv.name} + ${pair.pdf.name}…`;
+    setAnalysisBusy(true);
+    status.textContent = 'Inspection des exports Trade Republic du dossier…';
+    const pair = await selectLatestTradeRepublicSourcesByContent(files, {
+      pdfSnapshotDate: async (file) => (await parseNetWorthPdf(file)).snapshotDate,
+      csvCoverage: async (file) => {
+        const transactions = parseTransactions(await file.text());
+        const lastDate = transactions.reduce<string | null>((latest, transaction) => {
+          if (latest == null || transaction.date > latest) return transaction.date;
+          return latest;
+        }, null);
+        return { lastDate, rows: transactions.length };
+      },
+    });
+
+    const latestSavedDate = historySnapshots.length > 0
+      ? [...historySnapshots].sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate))[0]!.snapshotDate
+      : null;
+    if (latestSavedDate && pair.pdfSnapshotDate < latestSavedDate) {
+      throw new Error(
+        `Le relevé le plus récent trouvé dans ce dossier date du ${pair.pdfSnapshotDate}, antérieur au dernier snapshot local ${latestSavedDate}. Actualisation refusée pour éviter un retour en arrière.`,
+      );
+    }
+
+    status.textContent = `Sources retenues : ${pair.pdf.name} (${pair.pdfSnapshotDate}) + ${pair.csv.name}${pair.csvLastDate ? ` (transactions jusqu’au ${pair.csvLastDate})` : ''}.`;
     const fingerprint = await sourcePairFingerprint(pair);
     const unchanged = readLastSourceFingerprint() === fingerprint;
 
@@ -420,10 +444,14 @@ folderInput.addEventListener('change', async () => {
     }
 
     await runAnalysis(pair.csv, pair.pdf, fingerprint);
+    if (pair.warnings.length > 0 && currentAnalysis != null) {
+      status.textContent += ` ${pair.warnings.length} export(s) correspondant(s) mais illisible(s) ont été ignoré(s).`;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Actualisation impossible : ${message}`;
   } finally {
+    setAnalysisBusy(false);
     folderInput.value = '';
   }
 });
