@@ -221,8 +221,6 @@ function setupAllocationUi(): boolean {
     schedule();
   });
 
-  const observer = new MutationObserver(() => schedule());
-  observer.observe(results, { childList: true, subtree: true });
   schedule();
   return true;
 }
