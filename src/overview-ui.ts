@@ -85,7 +85,7 @@ function enhanceOverview(): boolean {
   const eyebrow = hero.querySelector<HTMLElement>('.eyebrow');
   const title = hero.querySelector<HTMLElement>('h1');
   const lede = hero.querySelector<HTMLElement>('.lede');
-  if (eyebrow) eyebrow.textContent = 'Portfolio Dashboard v5.1';
+  if (eyebrow) eyebrow.textContent = 'Portfolio Dashboard v5.2';
   if (title) title.textContent = 'Portefeuille';
   if (lede) lede.textContent = 'Vue principale : Compte-titres + PEA. Crypto, non coté et espèces restent séparés.';
 
