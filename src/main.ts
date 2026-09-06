@@ -15,7 +15,7 @@ import {
 } from './history';
 import { attachHistoryProvenance } from './history-provenance';
 import { parseNetWorthPdf } from './net-worth';
-import { selectLatestTradeRepublicSourcesByContent } from './source-refresh';
+import { selectLatestTradeRepublicSources } from './source-refresh';
 import { publishUiSnapshot } from './snapshot-bridge';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
@@ -148,7 +148,7 @@ importSection.append(
   element(
     'p',
     'muted-block',
-    'Sur iPhone, « Actualiser et enregistrer » inspecte les exports Trade Republic du dossier, analyse le meilleur couple de sources puis enregistre le snapshot dérivé. Les PDF/CSV eux-mêmes ne sont jamais persistés.',
+    'Sur iPhone, « Actualiser et enregistrer » sélectionne les exports Trade Republic les plus récents du dossier, les lit une seule fois puis enregistre le snapshot dérivé. Les PDF/CSV eux-mêmes ne sont jamais persistés.',
   ),
 );
 
@@ -461,54 +461,31 @@ folderInput.addEventListener('change', async () => {
 
   try {
     setAnalysisBusy(true);
-    status.textContent = 'Inspection des exports Trade Republic du dossier…';
-    const inspectedPdfSnapshots = new Map<File, NetWorthSnapshot>();
-    const inspectedCsvTexts = new Map<File, string>();
-    const pair = await selectLatestTradeRepublicSourcesByContent(files, {
-      pdfSnapshotDate: async (file) => {
-        status.textContent = 'Inspection du relevé ' + file.name + '…';
-        const snapshot = await withSourceTimeout(parseNetWorthPdf(file), 'la lecture de ' + file.name);
-        inspectedPdfSnapshots.set(file, snapshot);
-        return snapshot.snapshotDate;
-      },
-      csvCoverage: async (file) => {
-        status.textContent = 'Inspection des transactions ' + file.name + '…';
-        const csvText = await withSourceTimeout(file.text(), 'la lecture de ' + file.name);
-        inspectedCsvTexts.set(file, csvText);
-        const transactions = parseTransactions(csvText);
-        const lastDate = transactions.reduce<string | null>((latest, transaction) => {
-          if (latest == null || transaction.date > latest) return transaction.date;
-          return latest;
-        }, null);
-        return { lastDate, rows: transactions.length };
-      },
-    });
+    const pair = selectLatestTradeRepublicSources(files);
+
+    status.textContent = `Lecture du relevé ${pair.pdf.name}…`;
+    const snapshot = await withSourceTimeout(parseNetWorthPdf(pair.pdf), `la lecture de ${pair.pdf.name}`);
 
     const latestSavedDate = historySnapshots.length > 0
       ? [...historySnapshots].sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate))[0]!.snapshotDate
       : null;
-    if (latestSavedDate && pair.pdfSnapshotDate < latestSavedDate) {
+    if (latestSavedDate && snapshot.snapshotDate < latestSavedDate) {
       throw new Error(
-        `Le relevé le plus récent trouvé dans ce dossier date du ${pair.pdfSnapshotDate}, antérieur au dernier snapshot local ${latestSavedDate}. Actualisation refusée pour éviter un retour en arrière.`,
+        `Le relevé sélectionné date du ${snapshot.snapshotDate}, antérieur au dernier snapshot local ${latestSavedDate}. Actualisation refusée pour éviter un retour en arrière.`,
       );
     }
 
-    status.textContent = `Sources retenues : ${pair.pdf.name} (${pair.pdfSnapshotDate}) + ${pair.csv.name}${pair.csvLastDate ? ` (transactions jusqu’au ${pair.csvLastDate})` : ''}.`;
-    const analyzed = await runAnalysis(
-      pair.csv,
-      pair.pdf,
-      inspectedPdfSnapshots.get(pair.pdf),
-      inspectedCsvTexts.get(pair.csv),
-    );
+    status.textContent = `Lecture des transactions ${pair.csv.name}…`;
+    const csvText = await withSourceTimeout(pair.csv.text(), `la lecture de ${pair.csv.name}`);
+
+    status.textContent = `Sources retenues : ${pair.pdf.name} (${snapshot.snapshotDate}) + ${pair.csv.name}.`;
+    const analyzed = await runAnalysis(pair.csv, pair.pdf, snapshot, csvText);
     if (!analyzed) return;
 
     const saved = await persistCurrentSnapshot();
-    const warningNote = pair.warnings.length > 0
-      ? ` ${pair.warnings.length} export(s) correspondant(s) mais illisible(s) ont été ignoré(s).`
-      : '';
     status.textContent = saved
-      ? `Actualisation terminée : snapshot ${pair.pdfSnapshotDate} analysé et enregistré localement.${warningNote}`
-      : `Analyse terminée, mais le snapshot ${pair.pdfSnapshotDate} n’a pas pu être enregistré localement.${warningNote}`;
+      ? `Actualisation terminée : snapshot ${snapshot.snapshotDate} analysé et enregistré localement.`
+      : `Analyse terminée, mais le snapshot ${snapshot.snapshotDate} n’a pas pu être enregistré localement.`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Actualisation impossible : ${message}`;
