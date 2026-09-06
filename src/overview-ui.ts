@@ -123,4 +123,10 @@ function enhanceOverview(): boolean {
   return true;
 }
 
-if (!enhanceOverview()) throw new Error('Overview bootstrap could not find the deterministic main application shell.');
+if (!enhanceOverview()) {
+  const startupObserver = new MutationObserver(() => {
+    if (!enhanceOverview()) return;
+    startupObserver.disconnect();
+  });
+  startupObserver.observe(document.documentElement, { childList: true, subtree: true });
+}
