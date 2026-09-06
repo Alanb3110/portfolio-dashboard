@@ -15,12 +15,11 @@ import {
 } from './history';
 import { attachHistoryProvenance } from './history-provenance';
 import { parseNetWorthPdf } from './net-worth';
-import { selectLatestTradeRepublicSourcesByContent, sourcePairFingerprint } from './source-refresh';
+import { selectLatestTradeRepublicSourcesByContent } from './source-refresh';
 import { publishUiSnapshot } from './snapshot-bridge';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
 
-const LAST_SOURCE_FINGERPRINT_KEY = 'portfolio-dashboard-v5:last-source-fingerprint';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -75,20 +74,27 @@ function metric(label: string, value: string, subtext?: string): HTMLElement {
   return card;
 }
 
-function readLastSourceFingerprint(): string | null {
-  try {
-    return localStorage.getItem(LAST_SOURCE_FINGERPRINT_KEY);
-  } catch {
-    return null;
+function fastSourceHash(value: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
   }
+  return [first, second]
+    .map((part) => (part >>> 0).toString(16).padStart(8, '0'))
+    .join('');
 }
 
-function writeLastSourceFingerprint(value: string): void {
-  try {
-    localStorage.setItem(LAST_SOURCE_FINGERPRINT_KEY, value);
-  } catch {
-    // Fingerprint persistence is only a convenience; analysis must not depend on it.
-  }
+function parsedSourceFingerprint(csvText: string, snapshot: NetWorthSnapshot): string {
+  const pdfSemantics = JSON.stringify({
+    snapshotDate: snapshot.snapshotDate,
+    generatedAt: snapshot.generatedAt,
+    summary: snapshot.summary,
+    positions: snapshot.positions,
+  });
+  return `parsed-v1:${fastSourceHash(`${csvText}\n${pdfSemantics}`)}`;
 }
 
 let currentAnalysis: PortfolioAnalysis | null = null;
@@ -388,30 +394,31 @@ async function persistCurrentSnapshot(): Promise<boolean> {
 async function runAnalysis(
   csvFile: File,
   pdfFile: File,
-  fingerprint?: string,
   preParsedSnapshot?: NetWorthSnapshot,
+  preReadCsvText?: string,
 ): Promise<boolean> {
   setAnalysisBusy(true);
   status.textContent = `Analyse locale en cours… ${csvFile.name} + ${pdfFile.name}`;
   results.hidden = true;
 
   try {
-    const transactions = parseTransactions(await csvFile.text());
+    const csvText = preReadCsvText ?? await csvFile.text();
+    const transactions = parseTransactions(csvText);
     const ledger = normalizeLedger(transactions);
     const audit = auditLedger(ledger);
     const snapshot = preParsedSnapshot ?? await parseNetWorthPdf(pdfFile);
+    const fingerprint = parsedSourceFingerprint(csvText, snapshot);
     const analysis = analyzePortfolio(ledger, snapshot);
     const flows = mainCashFlows(ledger);
     currentAnalysis = analysis;
     currentSnapshot = snapshot;
     currentAudit = audit;
     currentMainFlows = flows;
-    currentSourceFingerprint = fingerprint ?? null;
+    currentSourceFingerprint = fingerprint;
     publishUiSnapshot(snapshot);
     // History is secondary to the local analysis. Use the in-memory history immediately
     // instead of blocking result rendering on a redundant IndexedDB reload.
     renderAnalysis(analysis, snapshot, audit, flows);
-    if (fingerprint) writeLastSourceFingerprint(fingerprint);
     status.textContent = `Analyse terminée avec ${csvFile.name} + ${pdfFile.name}. Les fichiers bruts n’ont pas quitté cet appareil.`;
     return true;
   } catch (error) {
@@ -441,6 +448,7 @@ folderInput.addEventListener('change', async () => {
     setAnalysisBusy(true);
     status.textContent = 'Inspection des exports Trade Republic du dossier…';
     const inspectedPdfSnapshots = new Map<File, NetWorthSnapshot>();
+    const inspectedCsvTexts = new Map<File, string>();
     const pair = await selectLatestTradeRepublicSourcesByContent(files, {
       pdfSnapshotDate: async (file) => {
         const snapshot = await parseNetWorthPdf(file);
@@ -448,7 +456,9 @@ folderInput.addEventListener('change', async () => {
         return snapshot.snapshotDate;
       },
       csvCoverage: async (file) => {
-        const transactions = parseTransactions(await file.text());
+        const csvText = await file.text();
+        inspectedCsvTexts.set(file, csvText);
+        const transactions = parseTransactions(csvText);
         const lastDate = transactions.reduce<string | null>((latest, transaction) => {
           if (latest == null || transaction.date > latest) return transaction.date;
           return latest;
@@ -467,18 +477,12 @@ folderInput.addEventListener('change', async () => {
     }
 
     status.textContent = `Sources retenues : ${pair.pdf.name} (${pair.pdfSnapshotDate}) + ${pair.csv.name}${pair.csvLastDate ? ` (transactions jusqu’au ${pair.csvLastDate})` : ''}.`;
-    const fingerprint = await sourcePairFingerprint(pair);
-    const unchanged = readLastSourceFingerprint() === fingerprint;
-    const alreadySaved = historySnapshots.some(
-      (snapshot) => snapshot.snapshotDate === pair.pdfSnapshotDate && snapshot.sourceFingerprint === fingerprint,
+    const analyzed = await runAnalysis(
+      pair.csv,
+      pair.pdf,
+      inspectedPdfSnapshots.get(pair.pdf),
+      inspectedCsvTexts.get(pair.csv),
     );
-
-    if (unchanged && currentAnalysis != null && alreadySaved) {
-      status.textContent = `Aucun nouvel export détecté : le snapshot ${pair.pdfSnapshotDate} est déjà analysé et enregistré.`;
-      return;
-    }
-
-    const analyzed = await runAnalysis(pair.csv, pair.pdf, fingerprint, inspectedPdfSnapshots.get(pair.pdf));
     if (!analyzed) return;
 
     const saved = await persistCurrentSnapshot();
@@ -505,13 +509,7 @@ analyzeButton.addEventListener('click', async () => {
     return;
   }
 
-  try {
-    const fingerprint = await sourcePairFingerprint({ csv: csvFile, pdf: pdfFile });
-    await runAnalysis(csvFile, pdfFile, fingerprint);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    status.textContent = `Échec de préparation des fichiers : ${message}`;
-  }
+  await runAnalysis(csvFile, pdfFile);
 });
 
 saveSnapshotButton.addEventListener('click', async () => {
