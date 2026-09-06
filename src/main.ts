@@ -385,7 +385,12 @@ async function persistCurrentSnapshot(): Promise<boolean> {
   }
 }
 
-async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): Promise<boolean> {
+async function runAnalysis(
+  csvFile: File,
+  pdfFile: File,
+  fingerprint?: string,
+  preParsedSnapshot?: NetWorthSnapshot,
+): Promise<boolean> {
   setAnalysisBusy(true);
   status.textContent = `Analyse locale en cours… ${csvFile.name} + ${pdfFile.name}`;
   results.hidden = true;
@@ -394,7 +399,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     const transactions = parseTransactions(await csvFile.text());
     const ledger = normalizeLedger(transactions);
     const audit = auditLedger(ledger);
-    const snapshot = await parseNetWorthPdf(pdfFile);
+    const snapshot = preParsedSnapshot ?? await parseNetWorthPdf(pdfFile);
     const analysis = analyzePortfolio(ledger, snapshot);
     const flows = mainCashFlows(ledger);
     currentAnalysis = analysis;
@@ -403,7 +408,8 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     currentMainFlows = flows;
     currentSourceFingerprint = fingerprint ?? null;
     publishUiSnapshot(snapshot);
-    await refreshHistory();
+    // History is secondary to the local analysis. Use the in-memory history immediately
+    // instead of blocking result rendering on a redundant IndexedDB reload.
     renderAnalysis(analysis, snapshot, audit, flows);
     if (fingerprint) writeLastSourceFingerprint(fingerprint);
     status.textContent = `Analyse terminée avec ${csvFile.name} + ${pdfFile.name}. Les fichiers bruts n’ont pas quitté cet appareil.`;
@@ -434,8 +440,13 @@ folderInput.addEventListener('change', async () => {
   try {
     setAnalysisBusy(true);
     status.textContent = 'Inspection des exports Trade Republic du dossier…';
+    const inspectedPdfSnapshots = new Map<File, NetWorthSnapshot>();
     const pair = await selectLatestTradeRepublicSourcesByContent(files, {
-      pdfSnapshotDate: async (file) => (await parseNetWorthPdf(file)).snapshotDate,
+      pdfSnapshotDate: async (file) => {
+        const snapshot = await parseNetWorthPdf(file);
+        inspectedPdfSnapshots.set(file, snapshot);
+        return snapshot.snapshotDate;
+      },
       csvCoverage: async (file) => {
         const transactions = parseTransactions(await file.text());
         const lastDate = transactions.reduce<string | null>((latest, transaction) => {
@@ -467,7 +478,7 @@ folderInput.addEventListener('change', async () => {
       return;
     }
 
-    const analyzed = await runAnalysis(pair.csv, pair.pdf, fingerprint);
+    const analyzed = await runAnalysis(pair.csv, pair.pdf, fingerprint, inspectedPdfSnapshots.get(pair.pdf));
     if (!analyzed) return;
 
     const saved = await persistCurrentSnapshot();
@@ -556,7 +567,7 @@ eraseHistoryButton.addEventListener('click', async () => {
   }
 });
 
-void refreshHistory();
+void refreshHistory().then(() => rerenderCurrentAnalysis());
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
