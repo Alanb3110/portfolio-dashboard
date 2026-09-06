@@ -18,10 +18,15 @@ Trade Republic PDF + CSV
         |
         +--> dashboard
 
-No personal portfolio payload crosses the network boundary.
+public benchmark IDs + coarse date range
+        |
+        v
+Cloudflare market Worker --> EODHD
 ```
 
-Raw PDF/CSV bytes and the normalized transaction ledger are not persisted by the application. Snapshot persistence is explicit: the user must press `Enregistrer le snapshot`.
+No personal portfolio payload crosses the network boundary. The Worker receives only one of the two fixed public benchmark IDs and a bounded date range.
+
+Raw PDF/CSV bytes and the normalized transaction ledger are not persisted by the application. Snapshot persistence is explicit: the user must deliberately save a derived snapshot. v5.2 may combine refresh and save into one clearly labelled action; this does not change what is persisted.
 
 ## Analytical scope
 
@@ -39,7 +44,7 @@ Critical path:
 3. XIRR / money-weighted return;
 4. allocation and concentration from official snapshots;
 5. progression between imported official snapshots;
-6. lightweight World / S&P 500 comparison.
+6. forward matched-flow World / S&P 500 comparison.
 
 Deliberately not required for v5 correctness:
 
@@ -50,7 +55,13 @@ Deliberately not required for v5 correctness:
 
 ## Network layer
 
-A market-data adapter will be added after the deterministic local core is accepted. Its interface must accept only public market identifiers/dates. It must never receive holdings, quantities, transaction rows, portfolio values or imported files.
+The production market-data path is a restricted Cloudflare Worker backed by EODHD.
+
+The browser adapter accepts only the fixed public MSCI World / S&P 500 benchmark definitions and date windows. The Worker maps those IDs to the fixed Xetra proxies, applies validation/caching/rate limiting and returns sanitized `date` + `adjustedClose` rows.
+
+It must never receive holdings, quantities, transaction rows, portfolio values, source fingerprints or imported files. A Worker/provider failure remains isolated from deterministic local portfolio analysis.
+
+See `docs/BENCHMARK.md` and `worker/README.md` for the frozen benchmark and deployment details.
 
 ## Persistence
 
@@ -58,11 +69,12 @@ IndexedDB stores only a versioned derived snapshot containing:
 
 - snapshot date and save timestamp;
 - methodology version and ledger cutoff date;
-- nullable provenance fields reserved for source fingerprint / ledger coverage;
+- provenance fields for source fingerprint / ledger coverage;
 - current main / extended / total values;
 - simple economic P&L and selected XIRR root;
 - Trade Republic pocket totals;
-- main-position values and allocation weights.
+- main-position values and allocation weights;
+- forward benchmark checkpoints/observations required for incremental matched-flow history.
 
 Position identities are scoped by pocket (`PEA:symbol` / `Compte-titres:symbol`) so the same security held in both accounts remains distinct.
 
@@ -70,4 +82,8 @@ History schema v2 is the current write format. Existing v1 IndexedDB records and
 
 The history store does **not** contain PDF/CSV bytes or the raw/normalized transaction history. Same-date saves deterministically replace the older save. Backup export/import uses an explicit versioned JSON schema; malformed or unsupported schemas are rejected rather than guessed.
 
-The browser database is a working local history, not a guaranteed backup. The UI therefore provides explicit export, import and erase controls. Snapshot-to-snapshot value changes are labelled as gross changes because they include contributions/withdrawals and are not portfolio returns.
+The browser database is a working local history, not a guaranteed backup. The UI therefore provides explicit export, import and erase controls. Snapshot-to-snapshot raw value changes must remain clearly distinguished from flow-adjusted performance.
+
+## Versioning rule for v5.2
+
+Application/package version and financial-methodology version are separate concerns. v5.2 product work may ship with financial methodology `5.1` as long as portfolio scope, cash-flow mapping, XIRR, benchmark replay/checkpoints and snapshot-history conventions remain unchanged.

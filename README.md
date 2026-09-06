@@ -1,4 +1,4 @@
-# Portfolio Dashboard v5.1
+# Portfolio Dashboard v5.1 / v5.2 development
 
 Local-first portfolio analysis PWA for Trade Republic exports.
 
@@ -10,9 +10,13 @@ Local-first portfolio analysis PWA for Trade Republic exports.
 - **No reconstructed daily TTWROR requirement.** Historical daily NAV backfill remains deliberately outside the critical path.
 - **iPhone-first.** The application is designed as an installable PWA with local folder refresh and manual file fallback.
 
-## Status — v5.1 frozen
+## Status — v5.1 frozen, v5.2 in development
 
 v5.1 was frozen on 2026-09-06 after a contradictory audit, synthetic CI coverage and live iPhone validation.
+
+The immutable v5.1 reference is `frozen/v5.1.0` at commit `92ca8f61bdfd25c5733357789ed63425ec61f292`.
+
+v5.2 development must preserve the frozen v5.1 financial methodology unless an explicit methodology-version decision is made. Product/UX, testing, robustness and maintainability work may continue without changing portfolio scope, canonical cash-flow mapping, XIRR convention, benchmark replay/checkpoint semantics or snapshot-only history methodology.
 
 Validated production path:
 
@@ -33,7 +37,7 @@ Derived snapshot history is stored in IndexedDB only after explicit user action.
 
 The benchmark layer remains non-blocking: a provider/network failure must never prevent the local portfolio analysis from rendering.
 
-See `docs/RELEASE_V5.1.md` for the frozen scope and validation record.
+See `docs/RELEASE_V5.1.md` for the frozen scope and validation record and `docs/V5.2_PLAN.md` for the current product-development guardrails.
 
 ## Local development
 

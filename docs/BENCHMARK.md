@@ -1,4 +1,4 @@
-# Lightweight benchmark methodology
+# Forward matched-flow benchmark methodology
 
 ## Objective
 
@@ -10,6 +10,8 @@ The v5 primary benchmark answers:
 
 It does **not** use actual MSCI World or S&P 500 holdings in the user's portfolio as the benchmark.
 
+This methodology is frozen in v5.1 and remains the default for v5.2 unless a later PR explicitly declares a methodology-version change.
+
 ## Fixed benchmark proxies
 
 | Benchmark | Proxy | ISIN | Xetra ticker | Currency |
@@ -17,117 +19,124 @@ It does **not** use actual MSCI World or S&P 500 holdings in the user's portfoli
 | MSCI World | iShares Core MSCI World UCITS ETF | IE00B4L5Y983 | EUNL | EUR |
 | S&P 500 | iShares Core S&P 500 UCITS ETF | IE00B5BMR087 | SXR8 | EUR |
 
-Using EUR-traded accumulating UCITS proxies keeps the comparison aligned with the existing v4 convention and avoids a separate FX leg in the benchmark engine.
+Using EUR-traded accumulating UCITS proxies keeps the comparison aligned with the existing convention and avoids a separate FX leg in the benchmark engine.
 
-## Primary v5 method: forward baseline
+## Primary method: forward baseline
 
-Let the first saved v5 snapshot be date \(T_0\), with main-portfolio value \(V_{T_0}\). The synthetic benchmark starts at the **same value**:
+Let the first saved v5 snapshot be date `T0`, with main-portfolio value `V0`. The synthetic benchmark starts at the **same value**:
 
-\[
-q_{T_0}=\frac{V_{T_0}}{P_{T_0^*}}
-\]
+`q0 = V0 / P(T0*)`
 
-where \(P_{T_0^*}\) is the latest benchmark close on or before the snapshot date. This allows a weekend/holiday Trade Republic snapshot without using future prices.
+where `P(T0*)` is the latest benchmark close on or before the snapshot date. This allows a weekend/holiday Trade Republic snapshot without using future prices.
 
-Only canonical cash flows **after** \(T_0\) are replayed:
+Only canonical cash flows **after** `T0` are replayed:
 
-\[
-q_t=q_{t^-}-\frac{CF_t}{P_t}
-\]
+`q(t) = q(t-) - CF(t) / P(t)`
 
-with the existing holdings-scope sign convention:
+with the frozen holdings-scope sign convention:
 
-- contribution / BUY cash flow: \(CF_t<0\) → benchmark units increase;
-- withdrawal / SELL / dividend cash flow: \(CF_t>0\) → benchmark units decrease.
+- contribution / BUY cash flow: `CF < 0` → benchmark units increase;
+- withdrawal / SELL / dividend cash flow: `CF > 0` → benchmark units decrease.
 
-Terminal benchmark value at later snapshot \(T\):
+Terminal benchmark value at later snapshot `T`:
 
-\[
-V_T^{bench}=q_T P_{T^*}
-\]
+`Vbench(T) = q(T) * P(T*)`
 
-where \(T^*\) is the latest market close on or before the snapshot date.
+where `T*` is the latest market close on or before the snapshot date.
 
 Benchmark XIRR is calculated from:
 
-- \(-V_{T_0}\) on baseline date \(T_0\);
-- the same canonical main cash flows after \(T_0\);
-- \(+V_T^{bench}\) on terminal snapshot date \(T\);
+- `-V0` on baseline date `T0`;
+- the same canonical main cash flows after `T0`;
+- `+Vbench(T)` on terminal snapshot date `T`;
 
 using the same frozen 365-day convention as the portfolio XIRR.
 
-### Why this is the v5 default
+For aligned periods shorter than 30 days, annualized XIRR is intentionally hidden in the UI. Terminal matched-flow benchmark values and euro/percentage gaps remain displayed.
 
-This preserves a financially fair matched-flow comparison while eliminating the need to reconstruct benchmark history back to 2023. The market-data layer only needs prices from shortly before the first v5 snapshot onward. With local caching, a free provider offering one year of history can therefore be sufficient for normal ongoing use.
+## Checkpoint method
 
-The old full-history matched-flow engine remains implemented as an analytical option, but it is **not required for the v5 dashboard**.
+Forward benchmark state is persisted locally as a derived checkpoint associated with saved snapshots. A compatible checkpoint records enough benchmark state to continue replay causally from its `asOfDate` rather than fetching/replaying the entire baseline-to-current period on every refresh.
+
+Normal benchmark operation therefore needs only the bounded market window after the latest compatible checkpoint. The checkpoint does not contain the user's raw transactions or source files.
+
+Checkpoint compatibility remains tied to:
+
+- benchmark identity;
+- forward matched-flow method version;
+- baseline snapshot date;
+- baseline main value;
+- checkpoint date not later than the evaluated snapshot.
+
+A checkpoint is an optimization/state-continuation mechanism, not a change in benchmark methodology.
 
 ## Temporal rules
 
-- Future cash-flow dates after the baseline require an **exact-date** benchmark price. Missing flow-date prices make that benchmark `N/A`; they are never silently forward/back-filled.
-- Baseline and terminal snapshots may use the latest close on or before their snapshot dates and display the actual market-price cutoff.
-- Future price points are ignored and reported to prevent look-ahead bias.
+- A canonical flow occurring on a benchmark trading session requires an exact-date benchmark price for that flow date. Missing required flow-date prices make that replay unavailable; they are never silently forward-filled from the future.
+- Baseline and terminal snapshots may use the latest close on or before their snapshot dates and expose the actual market-price cutoff.
+- Future price points are ignored/rejected to prevent look-ahead bias.
 - Duplicate dates, non-positive prices or invalid dates invalidate the benchmark series.
-- A matched withdrawal that would create negative benchmark units is `N/A`; the engine does not silently turn the synthetic benchmark into a short position.
-- Transactions occurring on or before the first v5 snapshot are already represented in the baseline portfolio value and are therefore not replayed a second time.
+- A matched withdrawal that would create negative benchmark units is unavailable; the engine does not silently turn the synthetic benchmark into a short position.
+- Transactions occurring on or before the first saved baseline snapshot are already represented in the baseline portfolio value and are not replayed a second time.
 
 ## Failure isolation
 
 Benchmark status is independent from local portfolio status.
 
 ```text
-PDF + CSV -> local portfolio analytics -> always available if local validation passes
+PDF + CSV -> local portfolio analytics -> available if local validation passes
                       |
                       +-> benchmark price layer -> PASS / WARN / N/A independently
 ```
 
-A provider outage, missing benchmark session or malformed benchmark response must never block P&L, XIRR, allocation, snapshot history or total-net-worth views.
+A provider outage, missing benchmark session, quota condition or malformed benchmark response must never block P&L, XIRR, allocation, snapshot history or total-net-worth views.
 
 ## Privacy boundary
 
-The future network adapter should request only the two fixed public benchmark series over a coarse date range. It must never transmit:
+The browser requests only one of the two fixed public benchmark IDs over a bounded date range. It must never transmit:
 
 - holdings or quantities;
 - NAV / P&L / XIRR;
 - transaction rows or transaction amounts;
 - imported files;
+- source fingerprints;
 - the individual list of cash-flow dates.
 
-For the forward baseline, the provider request begins seven calendar days before the baseline snapshot and ends at the current snapshot. This small over-fetch handles ordinary weekends/market holidays without disclosing transaction timing.
+The Worker maps the public benchmark ID to the fixed Xetra symbol internally. Its response is reduced to date and adjusted close rows.
 
-## Provider feasibility — 2026-08-30
+## Production market-data path
 
-This is a **preliminary documentation/API capability screen, not an empirical data-quality validation**. Exact EUNL/SXR8 availability, adjusted-price continuity and corporate-action correctness must still be tested before a provider is accepted.
+As validated for v5.1 on 2026-09-06, the production benchmark price path is:
 
-| Provider | Current relevant offer | Historical depth | Xetra/global fit | Preliminary verdict |
-|---|---|---:|---|---|
-| EODHD | Free: 20 calls/day. EOD All World: USD 19.99/month | Free 1 year; paid 30+ years | EOD API documents global stocks/ETFs and adjusted close | **Candidate A** |
-| Marketstack | Free: 100 requests/month. Basic: USD 9.99/month | Free 1 year; Basic 10 years | EOD plus splits/dividends; exact two-proxy coverage still unverified | **Candidate B** |
-| Alpha Vantage | Standard limit 25 requests/day; adjusted daily endpoint is Premium | full adjusted history is Premium | International equities supported, but entitlement is less attractive here | Lower priority |
-| Twelve Data | Grow: USD 79/month for individuals | global EOD under paid market access | Xetra (`XETR`) currently requires Grow | Reject on cost for this use case |
+`PWA -> restricted Cloudflare Worker -> EODHD`
 
-The forward-baseline method materially changes the economics of this choice: **we no longer need to buy a 2023→present backfill**. A free one-year history is adequate in principle if the two Xetra proxies are actually covered and the app keeps its public benchmark cache up to date.
+The Worker:
 
-Official references checked on 2026-08-30:
+- accepts only `msci-world` and `sp500`;
+- accepts only bounded `from` / `to` date windows;
+- maps internally to `EUNL.XETRA` and `SXR8.XETRA`;
+- stores the EODHD API token as a Cloudflare secret;
+- applies canonical cache keys and a shared upstream rate limiter;
+- sanitizes provider output to date + adjusted close;
+- exposes `/health` readiness for provider-secret and rate-limiter configuration;
+- remains a public-market gateway, not a portfolio backend.
 
-- EODHD pricing: https://eodhd.com/pricing
-- EODHD EOD historical API: https://eodhd.com/financial-apis/api-for-historical-data-and-volumes
-- Marketstack pricing: https://marketstack.com/pricing
-- Alpha Vantage documentation: https://www.alphavantage.co/documentation/
-- Alpha Vantage premium/limits: https://www.alphavantage.co/premium/
-- Twelve Data March 2026 pricing update: https://twelvedata.com/news/march-2026-updates
-- Twelve Data Xetra exchange access: https://twelvedata.com/exchanges/XETR
+The live v5.1 validation confirmed usable MSCI World and S&P 500 synthetic benchmark values in the installed iPhone PWA. Therefore the earlier provider-feasibility screen is superseded for the current production configuration.
 
-## Acceptance gate before network integration
+See `worker/README.md` for deployment/readiness details.
 
-For both EUNL/XETR and SXR8/XETR, the selected provider must demonstrate:
+## Integrity expectations
 
-1. unambiguous instrument identity (ISIN/ticker/venue/currency);
-2. coverage from the v5 baseline through the current cutoff;
-3. 100% coverage of post-baseline canonical cash-flow dates that are Xetra sessions;
-4. no duplicate/future/non-positive values;
-5. documented adjusted-close semantics;
-6. spot-check agreement with an independent exchange/issuer reference on selected dates;
-7. stable API terms and an acceptable personal-use cost.
+For both EUNL/XETRA and SXR8/XETRA, production benchmark operation requires:
 
-Until those checks pass, **Evidence insufficient—cannot conclude** that any provider is production-ready for the benchmark layer.
+1. fixed unambiguous instrument identity;
+2. coverage from the baseline/checkpoint request window through the evaluated snapshot cutoff;
+3. exact required prices for canonical flow dates that are Xetra sessions;
+4. no duplicate, future or non-positive values;
+5. adjusted-close values from the configured provider;
+6. strict causal handling of non-trading-day baseline/terminal dates;
+7. benchmark failures isolated from local portfolio analytics.
+
+## Change-control rule
+
+Any future modification of fixed proxy identity, cash-flow replay semantics, baseline rules, checkpoint compatibility/semantics, price-date causality or benchmark XIRR convention is a methodology change and must not be introduced silently under methodology `5.1`.
