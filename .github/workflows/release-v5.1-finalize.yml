@@ -1,0 +1,181 @@
+name: Finalize v5.1 release metadata
+
+on:
+  push:
+    branches: [release/v5.1.0]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[release-finalized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release/v5.1.0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Update release metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}: {old}')
+              p.write_text(text.replace(old, new))
+
+          replace('src/main.ts', "Portfolio Dashboard v5'", "Portfolio Dashboard v5.1'")
+          replace('worker/src/index.js', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+          replace('worker/smoke-test.mjs', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+          replace('worker/README.md', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+
+          Path('README.md').write_text('''# Portfolio Dashboard v5.1
+
+Local-first portfolio analysis PWA for Trade Republic exports.
+
+## Principles
+
+- **Personal data stays on the device.** Net Worth PDFs, transaction CSVs and transaction history are processed locally and are never uploaded by the application.
+- **Main portfolio = Compte-titres + PEA.** Crypto, private markets and cash remain separate.
+- **Simple, robust analytics first.** v5.1 prioritizes current value, economic P&L, XIRR, allocation/concentration, snapshot history, rebalancing guidance and World / S&P 500 context.
+- **No reconstructed daily TTWROR requirement.** Historical daily NAV backfill remains deliberately outside the critical path.
+- **iPhone-first.** The application is designed as an installable PWA with local folder refresh and manual file fallback.
+
+## Status — v5.1 frozen
+
+v5.1 was frozen on 2026-09-06 after a contradictory audit, synthetic CI coverage and live iPhone validation.
+
+Validated production path:
+
+- local Trade Republic PDF/CSV import and folder refresh;
+- strict temporal cutoff at the PDF snapshot date;
+- main-position quantity reconciliation against the official snapshot;
+- economic P&L and XIRR;
+- snapshot-based historical evolution;
+- forward matched-flow MSCI World and S&P 500 benchmarks through the restricted Cloudflare Worker;
+- benchmark checkpoints that avoid a daily-NAV/backfill dependency;
+- allocation/concentration and local rebalancing views;
+- PWA offline shell and update flow;
+- Cloudflare readiness, quota hardening, pinned Wrangler deployment and GitHub Pages deployment.
+
+The final live validation confirmed that both synthetic benchmarks render usable values in the installed iPhone PWA. A short-period `WARN` is expected while aligned XIRR is intentionally hidden for periods under 30 days; it is not a provider failure.
+
+Derived snapshot history is stored in IndexedDB only after explicit user action. Raw PDF/CSV bytes and the normalized transaction ledger are not persisted. History v2 records only derived values plus a local source fingerprint and audited ledger date bounds for reproducibility.
+
+The benchmark layer remains non-blocking: a provider/network failure must never prevent the local portfolio analysis from rendering.
+
+See `docs/RELEASE_V5.1.md` for the frozen scope and validation record.
+
+## Local development
+
+```bash
+npm ci
+npm run check
+npm run dev
+```
+
+## Security rule
+
+Never commit Trade Republic exports, exported backups or derived personal portfolio data. The repository contains only code, public instrument metadata and synthetic test fixtures.
+''')
+
+          Path('docs/RELEASE_V5.1.md').write_text('''# Portfolio Dashboard v5.1 — frozen release record
+
+Freeze date: **2026-09-06**  
+Package version: **5.1.0**  
+Methodology version: **5.1**
+
+## Frozen product scope
+
+The primary analytical scope is the **main portfolio = Compte-titres + PEA**. Crypto is separate, private assets are separate, and cash is informational rather than part of investment performance.
+
+Headline performance uses economic P&L and XIRR. The application deliberately does not reconstruct a daily portfolio NAV or TTWROR history.
+
+Historical evolution is snapshot-driven: only snapshots actually saved by the user are plotted. No daily interpolation is presented as observed portfolio history.
+
+## Benchmark methodology
+
+Primary benchmarks are synthetic forward matched-flow comparisons:
+
+- MSCI World proxy: EUNL.XETRA / IE00B4L5Y983;
+- S&P 500 proxy: SXR8.XETRA / IE00B5BMR087.
+
+At the baseline snapshot, the benchmark starts with the same value as the main portfolio. Subsequent canonical main cash flows are replayed causally into the benchmark. Benchmark checkpoints are stored with derived snapshots so normal operation does not require rebuilding the full historical price series.
+
+Only public benchmark identifiers and date windows are sent to the market Worker. Holdings, quantities, NAV, transaction rows and source files stay on-device.
+
+For periods shorter than 30 days, aligned XIRR is intentionally hidden because annualization is not decision-useful. Terminal matched-flow values and euro/percentage gaps remain displayed; the UI therefore reports `WARN` rather than pretending a long-horizon return estimate is meaningful.
+
+## Integrity controls frozen in v5.1
+
+- PDF pocket totals reconcile against the official Trade Republic summary.
+- Main position quantities reconcile ledger vs official PDF snapshot using `(pocket, symbol)` identities.
+- Transactions after the PDF snapshot date are excluded from performance calculations.
+- Invalid dates/datetimes and duplicate or empty transaction IDs fail visibly.
+- Unknown Trade Republic taxonomy values that could affect main investment performance fail visibly instead of silently falling through to cash.
+- Canonical main cash flows must be EUR under the current methodology.
+- History schema v2 records methodology version, source fingerprint, raw-ledger first/last dates and analytical cutoff without persisting raw transactions.
+- Benchmark pricing prevents future-price look-ahead and handles non-trading-day flows causally.
+
+## Deployment and privacy boundary
+
+The static PWA is deployed on GitHub Pages. The Cloudflare Worker is a narrow public-market gateway only.
+
+Worker safeguards include:
+
+- fixed benchmark allow-list;
+- strict query-parameter allow-list;
+- canonical cache keys;
+- 370-day request cap;
+- shared rate limiter before upstream EODHD calls;
+- EODHD token stored only as a Cloudflare secret;
+- `/health` readiness check for provider secret and rate-limiter binding;
+- mirrored root and `/worker` Wrangler configurations with CI equivalence checking;
+- Wrangler pinned to 4.129.0 on the repository-root deployment path;
+- `wrangler deploy --dry-run` in CI.
+
+## Validation record
+
+Automated validation covers TypeScript typechecking, synthetic financial tests, ingestion/parser tests, reconciliation, benchmark replay/checkpoints, allocation, rebalancing, history, PWA precache and Worker smoke tests.
+
+Manual production validation on iPhone confirmed:
+
+- folder refresh/import works;
+- derived history persists across reopening;
+- offline reopening works;
+- MSCI World and S&P 500 synthetic values render through the production Worker;
+- portfolio-vs-benchmark gaps render;
+- the sparse historical chart includes the benchmark observations.
+
+No private Trade Republic source file, portfolio value screenshot or derived personal backup is committed as release evidence.
+
+## Change-control rule after freeze
+
+Any future change to portfolio scope, canonical cash-flow mapping, XIRR convention, benchmark replay rules, checkpoint semantics or history methodology requires an explicit methodology-version decision rather than a silent v5.1 change.
+
+Bug fixes, compatibility fixes and UI improvements may remain within the v5.1 line only if they preserve those frozen financial conventions.
+''')
+          PY
+      - name: Install and validate
+        run: |
+          npm ci --ignore-scripts --legacy-peer-deps
+          npm run check
+          node worker/smoke-test.mjs
+          node worker/check-config.mjs
+          npx wrangler deploy --dry-run
+      - name: Commit release metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/RELEASE_V5.1.md src/main.ts worker/src/index.js worker/smoke-test.mjs worker/README.md
+          git commit -m "[release-finalized] Freeze Portfolio Dashboard v5.1.0"
+          git push
