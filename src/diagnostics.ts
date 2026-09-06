@@ -173,7 +173,8 @@ function init(): void {
   if (
     typeof window === 'undefined' ||
     typeof document === 'undefined' ||
-    typeof MutationObserver === 'undefined'
+    typeof MutationObserver === 'undefined' ||
+    /jsdom/i.test(navigator.userAgent)
   ) {
     return;
   }
