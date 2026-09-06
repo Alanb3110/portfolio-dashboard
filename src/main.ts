@@ -387,7 +387,7 @@ function rerenderCurrentAnalysis(): void {
   renderAnalysis(currentAnalysis, currentSnapshot, currentAudit, currentMainFlows);
 }
 
-async function persistCurrentSnapshot(): Promise<boolean> {
+async function persistCurrentSnapshot(rerender = true): Promise<boolean> {
   if (!currentAnalysis || !currentSnapshot || !historyAvailable) return false;
   try {
     const historyRecord = attachHistoryProvenance(
@@ -397,7 +397,7 @@ async function persistCurrentSnapshot(): Promise<boolean> {
     );
     await saveHistorySnapshot(historyRecord);
     await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
-    rerenderCurrentAnalysis();
+    if (rerender) rerenderCurrentAnalysis();
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -411,7 +411,6 @@ async function runAnalysis(
   pdfFile: File,
   minimumSnapshotDate?: string | null,
 ): Promise<boolean> {
-  setAnalysisBusy(true);
   status.textContent = `Analyse locale en cours… ${csvFile.name} + ${pdfFile.name}`;
   results.hidden = true;
 
@@ -454,8 +453,6 @@ async function runAnalysis(
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
     return false;
-  } finally {
-    setAnalysisBusy(false);
   }
 }
 
@@ -479,7 +476,7 @@ folderInput.addEventListener('change', async () => {
     if (!analyzed) return;
 
     const snapshotDate = currentSnapshot?.snapshotDate ?? 'inconnu';
-    const saved = await persistCurrentSnapshot();
+    const saved = await persistCurrentSnapshot(false);
     status.textContent = saved
       ? `Actualisation terminée : snapshot ${snapshotDate} analysé et enregistré localement.`
       : `Analyse terminée, mais le snapshot ${snapshotDate} n’a pas pu être enregistré localement.`;
@@ -500,7 +497,12 @@ analyzeButton.addEventListener('click', async () => {
     return;
   }
 
-  await runAnalysis(csvFile, pdfFile);
+  setAnalysisBusy(true);
+  try {
+    await runAnalysis(csvFile, pdfFile);
+  } finally {
+    setAnalysisBusy(false);
+  }
 });
 
 saveSnapshotButton.addEventListener('click', async () => {
