@@ -23,10 +23,11 @@ jobs:
         run: npm ci --ignore-scripts --legacy-peer-deps
       - name: Typecheck, test and build
         run: npm run check
-      - name: Built UI integration smoke
+      - name: Built UI and depth validation smoke
         run: |
           npm install --no-save --package-lock=false --ignore-scripts --legacy-peer-deps jsdom@30.0.1 fake-indexeddb@6.2.5
           node scripts/ui-integration-smoke.mjs
+          node scripts/depth-validation-smoke.mjs
       - name: Validate Cloudflare market proxy
         run: |
           node --check worker/src/index.js
