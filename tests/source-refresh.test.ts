@@ -73,6 +73,36 @@ describe('folder source refresh', () => {
     expect(selection.csvLastDate).toBe('2026-08-27');
   });
 
+  it('bounds semantic inspection to the three newest metadata candidates', async () => {
+    const pdfs = [
+      fakeFile('Net Worth.pdf', 100, 'p0'),
+      fakeFile('Net Worth (2).pdf', 200, 'p1'),
+      fakeFile('Net Worth (3).pdf', 300, 'p2'),
+      fakeFile('Net Worth (4).pdf', 400, 'p3'),
+      fakeFile('Net Worth (5).pdf', 500, 'p4'),
+    ];
+    const csvs = [
+      fakeFile('Transaction export.csv', 100, 'c0'),
+      fakeFile('Transaction export (2).csv', 200, 'c1'),
+      fakeFile('Transaction export (3).csv', 300, 'c2'),
+      fakeFile('Transaction export (4).csv', 400, 'c3'),
+      fakeFile('Transaction export (5).csv', 500, 'c4'),
+    ];
+    const seenPdfs: string[] = [];
+    const seenCsvs: string[] = [];
+    const selection = await selectLatestTradeRepublicSourcesByContent([...pdfs, ...csvs], {
+      pdfSnapshotDate: async (file) => { seenPdfs.push(file.name); return file.name.includes('(5)') ? '2026-09-05' : '2026-09-04'; },
+      csvCoverage: async (file) => { seenCsvs.push(file.name); return { lastDate: file.name.includes('(5)') ? '2026-09-04' : '2026-09-03', rows: 100 }; },
+    });
+    expect(seenPdfs).toHaveLength(3);
+    expect(seenCsvs).toHaveLength(3);
+    expect(seenPdfs).not.toContain('Net Worth.pdf');
+    expect(seenCsvs).not.toContain('Transaction export.csv');
+    expect(selection.pdf.name).toBe('Net Worth (5).pdf');
+    expect(selection.csv.name).toBe('Transaction export (5).csv');
+    expect(selection.warnings.some((warning) => warning.includes('limitée'))).toBe(true);
+  });
+
   it('reports matching but unreadable old exports without letting them win', async () => {
     const goodPdf = fakeFile('Net Worth.pdf', 100, 'good');
     const brokenPdf = fakeFile('Net Worth (2).pdf', 200, 'broken');

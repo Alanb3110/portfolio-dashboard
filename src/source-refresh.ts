@@ -22,6 +22,7 @@ export interface SemanticSourceSelection extends TradeRepublicSourcePair {
 const CSV_PATTERN = /^transaction export(?:\s*(?:\(\d+\)|\d+))?\.csv$/i;
 const PDF_PATTERN = /^net worth(?:\s*(?:\(\d+\)|\d+))?\.pdf$/i;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SEMANTIC_CANDIDATES = 3;
 
 function compareFileMetadata(a: File, b: File): number {
   if (a.lastModified !== b.lastModified) return b.lastModified - a.lastModified;
@@ -63,9 +64,17 @@ export async function selectLatestTradeRepublicSourcesByContent(
 ): Promise<SemanticSourceSelection> {
   const { csvFiles, pdfFiles } = matchingSources(files);
   const warnings: string[] = [];
+  const pdfCandidates = [...pdfFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);
+  const csvCandidates = [...csvFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);
+  if (pdfFiles.length > pdfCandidates.length) {
+    warnings.push('Inspection PDF limitée aux ' + pdfCandidates.length + ' exports les plus récents sur ' + pdfFiles.length + '.');
+  }
+  if (csvFiles.length > csvCandidates.length) {
+    warnings.push('Inspection CSV limitée aux ' + csvCandidates.length + ' exports les plus récents sur ' + csvFiles.length + '.');
+  }
 
   const inspectedPdfs: Array<{ file: File; snapshotDate: string }> = [];
-  for (const file of pdfFiles) {
+  for (const file of pdfCandidates) {
     try {
       const snapshotDate = await inspector.pdfSnapshotDate(file);
       if (!validIsoDate(snapshotDate)) throw new Error(`invalid snapshot date ${snapshotDate}`);
@@ -81,7 +90,7 @@ export async function selectLatestTradeRepublicSourcesByContent(
   });
 
   const inspectedCsvs: Array<{ file: File; coverage: CsvSemanticCoverage }> = [];
-  for (const file of csvFiles) {
+  for (const file of csvCandidates) {
     try {
       const coverage = await inspector.csvCoverage(file);
       if (!Number.isInteger(coverage.rows) || coverage.rows < 0) throw new Error('invalid row count');
