@@ -1,4 +1,4 @@
-# Portfolio Dashboard v5.1 / v5.2 development
+# Portfolio Dashboard v5.2
 
 Local-first portfolio analysis PWA for Trade Republic exports.
 
@@ -6,38 +6,42 @@ Local-first portfolio analysis PWA for Trade Republic exports.
 
 - **Personal data stays on the device.** Net Worth PDFs, transaction CSVs and transaction history are processed locally and are never uploaded by the application.
 - **Main portfolio = Compte-titres + PEA.** Crypto, private markets and cash remain separate.
-- **Simple, robust analytics first.** v5.1 prioritizes current value, economic P&L, XIRR, allocation/concentration, snapshot history, rebalancing guidance and World / S&P 500 context.
+- **Financial methodology remains 5.1.** v5.2 changes product UX, robustness and decision-support presentation without changing the frozen portfolio scope, canonical cash-flow mapping, XIRR convention, benchmark replay/checkpoints or snapshot-only history methodology.
 - **No reconstructed daily TTWROR requirement.** Historical daily NAV backfill remains deliberately outside the critical path.
-- **iPhone-first.** The application is designed as an installable PWA with local folder refresh and manual file fallback.
+- **iPhone-first.** The primary workflow is one explicit action: `Actualiser et enregistrer`.
 
-## Status — v5.1 frozen, v5.2 in development
+## Status — v5.2.0 release candidate
 
-v5.1 was frozen on 2026-09-06 after a contradictory audit, synthetic CI coverage and live iPhone validation.
+v5.1 was frozen on 2026-09-06 after contradictory audit, CI coverage and live iPhone validation. Its immutable reference remains `frozen/v5.1.0` at commit `92ca8f61bdfd25c5733357789ed63425ec61f292`.
 
-The immutable v5.1 reference is `frozen/v5.1.0` at commit `92ca8f61bdfd25c5733357789ed63425ec61f292`.
+v5.2.0 has completed the planned code/CI work and is in release-candidate validation. It must not be frozen as `frozen/v5.2.0` until the deployed build has passed the final real-iPhone workflow check.
 
-v5.2 development must preserve the frozen v5.1 financial methodology unless an explicit methodology-version decision is made. Product/UX, testing, robustness and maintainability work may continue without changing portfolio scope, canonical cash-flow mapping, XIRR convention, benchmark replay/checkpoint semantics or snapshot-only history methodology.
+v5.2 adds, without changing financial methodology:
 
-Validated production path:
+- semantic folder refresh based on actual statement/transaction recency rather than filesystem timestamps alone;
+- one-tap `Actualiser et enregistrer` with manual analysis as a fallback;
+- flow-adjusted economic performance between compatible observed snapshots;
+- buy-only guidance for allocating a user-entered next contribution against local target weights;
+- explicit line-level concentration wording (`Top 1 ligne`, `Top 3 lignes`, `HHI lignes`);
+- touch-friendly inspection of sparse historical portfolio/benchmark observations;
+- built-production UI integration smoke coverage and a deterministic single application entry point.
 
-- local Trade Republic PDF/CSV import and folder refresh;
-- strict temporal cutoff at the PDF snapshot date;
+Validated automated path:
+
+- local Trade Republic PDF/CSV import and strict temporal cutoff at the PDF snapshot date;
 - main-position quantity reconciliation against the official snapshot;
 - economic P&L and XIRR;
-- snapshot-based historical evolution;
+- snapshot-only history and provenance checks;
 - forward matched-flow MSCI World and S&P 500 benchmarks through the restricted Cloudflare Worker;
 - benchmark checkpoints that avoid a daily-NAV/backfill dependency;
-- allocation/concentration and local rebalancing views;
-- PWA offline shell and update flow;
-- Cloudflare readiness, quota hardening, pinned Wrangler deployment and GitHub Pages deployment.
+- allocation/concentration and contribution-first rebalancing views;
+- PWA offline shell and IndexedDB history continuity;
+- Cloudflare readiness, quota hardening, pinned Wrangler deployment and config-mirror validation;
+- built-production UI smoke against the Vite artifact.
 
-The final live validation confirmed that both synthetic benchmarks render usable values in the installed iPhone PWA. A short-period `WARN` is expected while aligned XIRR is intentionally hidden for periods under 30 days; it is not a provider failure.
+Raw PDF/CSV bytes and the normalized transaction ledger are never persisted. History v2 stores only derived values plus local source fingerprint and audited ledger date bounds. Benchmark/network failures remain non-blocking for local portfolio analysis.
 
-Derived snapshot history is stored in IndexedDB only after explicit user action. Raw PDF/CSV bytes and the normalized transaction ledger are not persisted. History v2 records only derived values plus a local source fingerprint and audited ledger date bounds for reproducibility.
-
-The benchmark layer remains non-blocking: a provider/network failure must never prevent the local portfolio analysis from rendering.
-
-See `docs/RELEASE_V5.1.md` for the frozen scope and validation record and `docs/V5.2_PLAN.md` for the current product-development guardrails.
+See `docs/RELEASE_V5.1.md` for the immutable v5.1 baseline, `docs/V5.2_PLAN.md` for the v5.2 design guardrails, and `docs/RELEASE_V5.2.md` for the release-candidate validation record.
 
 ## Local development
 
