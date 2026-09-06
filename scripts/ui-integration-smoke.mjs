@@ -16,6 +16,9 @@ assert.ok(moduleSrc, 'Built index.html must reference the application module bun
 const assetName = path.basename(moduleSrc);
 const assetPath = path.join(distDir, 'assets', assetName);
 await fs.access(assetPath);
+const builtBundle = await fs.readFile(assetPath, 'utf8');
+assert.match(builtBundle, /Orienter le prochain apport/, 'Built production bundle must include the next-contribution planner.');
+assert.match(builtBundle, /buy-only/, 'Built production bundle must include explicit buy-only contribution guidance.');
 
 function setGlobal(key, value) {
   Object.defineProperty(globalThis, key, {
@@ -161,4 +164,4 @@ assert.match(secondDocument.body.textContent ?? '', /1 snapshot\(s\) enregistré
 
 firstDom.window.close();
 secondDom.window.close();
-console.log('Built UI integration smoke passed: shell composition, module bindings and IndexedDB reload continuity.');
+console.log('Built UI integration smoke passed: shell composition, contribution planner shipping, module bindings and IndexedDB reload continuity.');

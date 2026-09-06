@@ -1,5 +1,6 @@
 import type { NetWorthSnapshot } from './domain';
 import {
+  computeContributionRebalancing,
   computeRebalancing,
   createTargetConfig,
   mainPositionId,
@@ -95,7 +96,7 @@ function renderIntro(panel: HTMLElement, onEdit: () => void, storageError: strin
     element(
       'p',
       'muted-block',
-      'Aucune cible n’est appliquée par défaut. Définis toi-même les poids cibles du portefeuille principal pour afficher les dérives en points de pourcentage et en euros.',
+      'Aucune cible n’est appliquée par défaut. Définis toi-même les poids cibles du portefeuille principal pour afficher les dérives et guider les prochains apports.',
     ),
   );
   if (storageError) body.append(element('p', 'warnings rebalance-warning', storageError));
@@ -215,6 +216,108 @@ function renderEditor(
   updateSum();
 }
 
+function renderContributionPlanner(
+  snapshot: NetWorthSnapshot,
+  config: RebalancingTargetConfig,
+): HTMLElement {
+  const planner = element('section', 'rebalance-contribution');
+  planner.append(
+    element('h3', 'subheading rebalance-contribution-title', 'Orienter le prochain apport'),
+    element(
+      'p',
+      'rebalance-caveat',
+      'Saisis le montant à investir : le calcul privilégie uniquement les lignes sous-pondérées après apport et ne suppose aucune vente.',
+    ),
+  );
+
+  const controls = element('div', 'rebalance-contribution-controls');
+  const field = element('label', 'rebalance-contribution-field');
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '10';
+  input.inputMode = 'decimal';
+  input.placeholder = '1 000';
+  input.setAttribute('aria-label', 'Montant du prochain apport en euros');
+  field.append(input, element('span', undefined, '€'));
+  controls.append(field);
+  planner.append(controls);
+
+  const output = element('div', 'rebalance-contribution-output');
+  output.append(element('p', 'status', 'Saisis un montant pour obtenir une répartition buy-only.'));
+  planner.append(output);
+
+  const renderPlan = (): void => {
+    output.replaceChildren();
+    const normalized = input.value.trim().replace(',', '.').replace(/\s/g, '');
+    if (normalized === '') {
+      output.append(element('p', 'status', 'Saisis un montant pour obtenir une répartition buy-only.'));
+      return;
+    }
+    const contribution = Number(normalized);
+    if (!Number.isFinite(contribution) || contribution <= 0) {
+      output.append(element('p', 'warnings rebalance-warning', 'Le montant doit être strictement positif.'));
+      return;
+    }
+
+    const plan = computeContributionRebalancing(snapshot, config, contribution);
+    if (plan.status !== 'PASS') {
+      output.append(element('p', 'warnings rebalance-warning', plan.note));
+      return;
+    }
+
+    const summary = element('div', 'rebalance-contribution-summary');
+    const amountCard = element('div', 'rebalance-summary-card');
+    amountCard.append(
+      element('span', 'allocation-kpi-label', 'Apport simulé'),
+      element('strong', 'allocation-kpi-value', formatEur(plan.contributionEur)),
+      element('span', 'allocation-kpi-note', `Portefeuille projeté ${formatEur(plan.projectedMainValue)}`),
+    );
+    const driftCard = element('div', 'rebalance-summary-card');
+    driftCard.append(
+      element('span', 'allocation-kpi-label', 'Dérive max projetée'),
+      element('strong', 'allocation-kpi-value', formatSignedPoints(plan.maxProjectedAbsDrift ?? 0).replace('+', '')),
+      element(
+        'span',
+        'allocation-kpi-note',
+        `Avant ${formatSignedPoints(plan.maxCurrentAbsDrift ?? 0).replace('+', '')}`,
+      ),
+    );
+    summary.append(amountCard, driftCard);
+    output.append(summary);
+
+    const purchases = plan.rows.filter((row) => row.purchaseEur >= 0.005);
+    const list = element('div', 'rebalance-purchase-list');
+    for (const row of purchases) {
+      const item = element('div', 'rebalance-purchase-row');
+      const identity = element('div', 'rebalance-row-identity');
+      identity.append(
+        element('strong', undefined, row.name),
+        element('span', 'muted', `${row.pocket} · cible ${formatPercent(row.targetWeight)}`),
+        element('span', 'rebalance-current-target', `Projeté ${formatPercent(row.projectedWeight)} · dérive ${formatSignedPoints(row.projectedDriftWeight)}`),
+      );
+      const amount = element('div', 'rebalance-purchase-amount');
+      amount.append(
+        element('span', 'muted', 'Acheter'),
+        element('strong', undefined, formatEur(row.purchaseEur)),
+      );
+      item.append(identity, amount);
+      list.append(item);
+    }
+    output.append(list);
+    output.append(
+      element(
+        'p',
+        'rebalance-caveat',
+        'Montants théoriques en euros. Parts entières, prix d’exécution, frais, fiscalité et contraintes de passage d’ordre ne sont pas modélisés.',
+      ),
+    );
+  };
+
+  input.addEventListener('input', renderPlan);
+  return planner;
+}
+
 function renderResult(
   panel: HTMLElement,
   snapshot: NetWorthSnapshot,
@@ -261,9 +364,9 @@ function renderResult(
   summaryCards[1]!.append(
     element('span', 'allocation-kpi-label', 'Réallocation interne'),
     element('strong', 'allocation-kpi-value', formatEur(result.internalReallocationEur ?? 0)),
-    element('span', 'allocation-kpi-note', '½ somme des écarts absolus en €'),
+    element('span', 'allocation-kpi-note', 'Montant théorique à déplacer sans apport'),
   );
-  body.append(summary);
+  body.append(summary, renderContributionPlanner(snapshot, config));
 
   const list = element('div', 'rebalance-list');
   for (const row of result.rows) {
@@ -290,7 +393,7 @@ function renderResult(
     element(
       'p',
       'rebalance-caveat',
-      'Lecture mécanique à valeur totale constante. Elle n’intègre pas fiscalité, frais, contraintes de parts entières ni préférence pour corriger les écarts avec de nouveaux apports.',
+      'La réallocation interne reste une lecture mécanique à valeur totale constante. Pour un nouvel apport, utilise en priorité le simulateur buy-only ci-dessus.',
     ),
   );
 
