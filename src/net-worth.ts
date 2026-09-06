@@ -1,5 +1,6 @@
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { diagFile, diagLog } from './diagnostics';
 import type { NetWorthSnapshot, NetWorthSummary, PositionPocket, SnapshotPosition } from './domain';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -7,26 +8,88 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const PDF_STAGE_TIMEOUT_MS = 15_000;
 
 function reportPdfStage(message: string): void {
+  diagLog(`PDF stage: ${message}`);
   if (typeof document === 'undefined') return;
   const status = document.querySelector<HTMLElement>('.quick-status') ?? document.querySelector<HTMLElement>('.status');
   if (status) status.textContent = message;
 }
 
 async function withPdfTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  const startedAt = performance.now();
+  diagLog(`PDF await START: ${label}`);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`Délai PDF dépassé pendant ${label} (${PDF_STAGE_TIMEOUT_MS / 1000} s).`)),
-          PDF_STAGE_TIMEOUT_MS,
-        );
+        timer = setTimeout(() => {
+          diagLog(`PDF await TIMEOUT: ${label} après ${PDF_STAGE_TIMEOUT_MS} ms`);
+          reject(new Error(`Délai PDF dépassé pendant ${label} (${PDF_STAGE_TIMEOUT_MS / 1000} s).`));
+        }, PDF_STAGE_TIMEOUT_MS);
       }),
     ]);
+    diagLog(`PDF await OK: ${label} en ${(performance.now() - startedAt).toFixed(1)} ms`);
+    return result;
+  } catch (error) {
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    diagLog(`PDF await ERROR: ${label} après ${(performance.now() - startedAt).toFixed(1)} ms · ${detail}`);
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function readPdfBytesWithFileReader(file: File): Promise<ArrayBuffer> {
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    let lastProgress = -1;
+
+    diagLog(`PDF FileReader créé · readyState=${reader.readyState}`);
+
+    reader.onloadstart = () => {
+      diagLog(`PDF FileReader loadstart · readyState=${reader.readyState}`);
+    };
+    reader.onprogress = (event) => {
+      const loaded = event.loaded;
+      const total = event.lengthComputable ? event.total : file.size;
+      const percent = total > 0 ? Math.floor((loaded / total) * 100) : 0;
+      if (percent !== lastProgress) {
+        lastProgress = percent;
+        diagLog(`PDF FileReader progress · ${loaded}/${total} B · ${percent}%`);
+      }
+    };
+    reader.onerror = () => {
+      const detail = reader.error ? `${reader.error.name}: ${reader.error.message}` : 'erreur inconnue';
+      diagLog(`PDF FileReader error · ${detail}`);
+      reject(reader.error ?? new Error('FileReader PDF error'));
+    };
+    reader.onabort = () => {
+      diagLog('PDF FileReader abort');
+      reject(new Error('Lecture PDF annulée par FileReader.'));
+    };
+    reader.onload = () => {
+      const result = reader.result;
+      diagLog(`PDF FileReader load · readyState=${reader.readyState} · resultType=${result?.constructor?.name ?? typeof result}`);
+      if (!(result instanceof ArrayBuffer)) {
+        reject(new Error('FileReader PDF did not return an ArrayBuffer.'));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onloadend = () => {
+      diagLog(`PDF FileReader loadend · readyState=${reader.readyState}`);
+    };
+
+    try {
+      diagLog('PDF FileReader readAsArrayBuffer() CALL');
+      reader.readAsArrayBuffer(file);
+      diagLog(`PDF FileReader readAsArrayBuffer() RETURN · readyState=${reader.readyState}`);
+    } catch (error) {
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      diagLog(`PDF FileReader readAsArrayBuffer() THROW · ${detail}`);
+      reject(error);
+    }
+  });
 }
 
 function parseFrenchNumber(raw: string): number {
@@ -49,21 +112,39 @@ interface PositionedText {
 }
 
 async function extractLayoutText(file: File): Promise<string> {
-  reportPdfStage(`PDF 1/5 · Lecture des octets ${file.name}…`);
-  const buffer = await withPdfTimeout(file.arrayBuffer(), 'la lecture des octets du fichier');
-  const bytes = new Uint8Array(buffer);
-  reportPdfStage(`PDF 2/5 · ${Math.ceil(bytes.byteLength / 1024)} ko chargés · Initialisation PDF.js…`);
+  diagFile('PDF entrée', file);
+  reportPdfStage(`PDF 1/8 · Métadonnées ${file.name} · ${file.size} octets…`);
 
+  reportPdfStage(`PDF 2/8 · FileReader des octets ${file.name}…`);
+  const buffer = await withPdfTimeout(readPdfBytesWithFileReader(file), 'la lecture FileReader des octets du fichier');
+  const bytes = new Uint8Array(buffer);
+  const signature = [...bytes.slice(0, 8)].map((value) => value.toString(16).padStart(2, '0')).join(' ');
+  diagLog(`PDF octets disponibles · byteLength=${bytes.byteLength} · signatureHex=${signature}`);
+
+  const fakeWorker = Boolean(
+    (globalThis as typeof globalThis & { pdfjsWorker?: { WorkerMessageHandler?: unknown } }).pdfjsWorker?.WorkerMessageHandler,
+  );
+  reportPdfStage(`PDF 3/8 · ${Math.ceil(bytes.byteLength / 1024)} ko chargés · Initialisation PDF.js…`);
+  diagLog(`PDF.js config · workerSrc=${GlobalWorkerOptions.workerSrc} · fakeWorkerPreloaded=${fakeWorker}`);
+
+  diagLog('PDF getDocument() CALL');
   const loadingTask = getDocument({ data: bytes });
-  const pdfDocument = await withPdfTimeout(loadingTask.promise, 'l’initialisation PDF.js');
-  reportPdfStage(`PDF 3/5 · Document ouvert · ${pdfDocument.numPages} page(s)…`);
+  diagLog('PDF getDocument() RETURN · attente loadingTask.promise');
+  const pdfDocument = await withPdfTimeout(loadingTask.promise, 'l’initialisation PDF.js / ouverture du document');
+  reportPdfStage(`PDF 4/8 · Document ouvert · ${pdfDocument.numPages} page(s)…`);
 
   const pages: string[] = [];
   for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-    reportPdfStage(`PDF 4/5 · Chargement page ${pageNumber}/${pdfDocument.numPages}…`);
-    const page = await withPdfTimeout(pdfDocument.getPage(pageNumber), `le chargement de la page ${pageNumber}`);
-    reportPdfStage(`PDF 4/5 · Extraction texte page ${pageNumber}/${pdfDocument.numPages}…`);
-    const content = await withPdfTimeout(page.getTextContent(), `l’extraction texte de la page ${pageNumber}`);
+    reportPdfStage(`PDF 5/8 · getPage ${pageNumber}/${pdfDocument.numPages}…`);
+    const page = await withPdfTimeout(pdfDocument.getPage(pageNumber), `getPage(${pageNumber})`);
+    diagLog(`PDF getPage(${pageNumber}) OK`);
+
+    reportPdfStage(`PDF 6/8 · getTextContent page ${pageNumber}/${pdfDocument.numPages}…`);
+    diagLog(`PDF page ${pageNumber}: getTextContent() CALL`);
+    const content = await withPdfTimeout(page.getTextContent(), `getTextContent() page ${pageNumber}`);
+    diagLog(`PDF page ${pageNumber}: getTextContent() OK · items=${content.items.length}`);
+
+    reportPdfStage(`PDF 7/8 · Reconstruction layout page ${pageNumber}/${pdfDocument.numPages}…`);
     const items: PositionedText[] = [];
 
     for (const item of content.items) {
@@ -72,6 +153,7 @@ async function extractLayoutText(file: File): Promise<string> {
       const y = item.transform[5] ?? 0;
       items.push({ x, y, text: item.str });
     }
+    diagLog(`PDF page ${pageNumber}: ${items.length} item(s) texte positionnés`);
 
     const lines = new Map<number, PositionedText[]>();
     for (const item of items) {
@@ -93,9 +175,10 @@ async function extractLayoutText(file: File): Promise<string> {
       .filter(Boolean);
 
     pages.push(pageLines.join('\n'));
+    diagLog(`PDF page ${pageNumber}: reconstruction OK · lignes=${pageLines.length}`);
   }
 
-  reportPdfStage('PDF 5/5 · Texte extrait · Interprétation du relevé…');
+  reportPdfStage('PDF 8/8 · Texte extrait · Interprétation du relevé…');
   return pages.join('\n');
 }
 
@@ -197,6 +280,7 @@ function parsePositions(lines: string[]): SnapshotPosition[] {
 }
 
 export function parseNetWorthText(text: string): NetWorthSnapshot {
+  diagLog(`PDF parseNetWorthText START · caractères=${text.length}`);
   const snapshotMatch = text.match(/au\s+(\d{2})\.(\d{2})\.(\d{4})/i);
   if (!snapshotMatch?.[1] || !snapshotMatch[2] || !snapshotMatch[3]) {
     throw new Error('Could not find the snapshot date in the Net Worth PDF.');
@@ -242,7 +326,6 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
     }
 
     for (const position of positions) {
-      // The statement displays unit prices to cents, so the hidden true price can differ by up to 0.005 EUR per unit.
       const roundingTolerance = Math.abs(position.shares) * 0.005 + 0.02;
       const displayedProductDelta = position.shares * position.price - position.value;
       if (Math.abs(displayedProductDelta) > roundingTolerance) {
@@ -252,8 +335,6 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
       }
     }
 
-    // Market identifiers are required for the main and crypto pockets only.
-    // Non-listed assets are informational and intentionally excluded from performance/benchmark market-data lookups.
     const missingMarketSymbols = positions.filter(
       (position) => position.pocket !== 'Non cote' && position.symbol == null,
     ).length;
@@ -262,15 +343,22 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
     }
   }
 
-  return {
+  const snapshot = {
     snapshotDate: `${snapshotMatch[3]}-${snapshotMatch[2]}-${snapshotMatch[1]}`,
     generatedAt: generated,
     summary,
     positions,
     warnings,
   };
+  diagLog(`PDF parseNetWorthText OK · snapshot=${snapshot.snapshotDate} · positions=${positions.length} · warnings=${warnings.length}`);
+  return snapshot;
 }
 
 export async function parseNetWorthPdf(file: File): Promise<NetWorthSnapshot> {
-  return parseNetWorthText(await extractLayoutText(file));
+  diagLog('PDF parseNetWorthPdf START');
+  const text = await extractLayoutText(file);
+  diagLog(`PDF extractLayoutText OK · caractères=${text.length}`);
+  const snapshot = parseNetWorthText(text);
+  diagLog('PDF parseNetWorthPdf END');
+  return snapshot;
 }
