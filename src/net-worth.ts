@@ -25,49 +25,44 @@ interface PositionedText {
 
 async function extractLayoutText(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = getDocument({ data: bytes });
-  const document = await loadingTask.promise;
-  try {
-    const pages: string[] = [];
+  const document = await getDocument({ data: bytes }).promise;
+  const pages: string[] = [];
 
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const items: PositionedText[] = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const items: PositionedText[] = [];
 
-      for (const item of content.items) {
-        if (!('str' in item) || !('transform' in item)) continue;
-        const x = item.transform[4] ?? 0;
-        const y = item.transform[5] ?? 0;
-        items.push({ x, y, text: item.str });
-      }
-
-      const lines = new Map<number, PositionedText[]>();
-      for (const item of items) {
-        const y = Math.round(item.y * 2) / 2;
-        const line = lines.get(y) ?? [];
-        line.push(item);
-        lines.set(y, line);
-      }
-
-      const pageLines = [...lines.entries()]
-        .sort(([a], [b]) => b - a)
-        .map(([, line]) =>
-          line
-            .sort((a, b) => a.x - b.x)
-            .map((item) => item.text.trim())
-            .filter(Boolean)
-            .join(' '),
-        )
-        .filter(Boolean);
-
-      pages.push(pageLines.join('\n'));
+    for (const item of content.items) {
+      if (!('str' in item) || !('transform' in item)) continue;
+      const x = item.transform[4] ?? 0;
+      const y = item.transform[5] ?? 0;
+      items.push({ x, y, text: item.str });
     }
 
-    return pages.join('\n');
-  } finally {
-    await loadingTask.destroy();
+    const lines = new Map<number, PositionedText[]>();
+    for (const item of items) {
+      const y = Math.round(item.y * 2) / 2;
+      const line = lines.get(y) ?? [];
+      line.push(item);
+      lines.set(y, line);
+    }
+
+    const pageLines = [...lines.entries()]
+      .sort(([a], [b]) => b - a)
+      .map(([, line]) =>
+        line
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.text.trim())
+          .filter(Boolean)
+          .join(' '),
+      )
+      .filter(Boolean);
+
+    pages.push(pageLines.join('\n'));
   }
+
+  return pages.join('\n');
 }
 
 function extractSummaryBlock(text: string): string {
@@ -213,7 +208,6 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
     }
 
     for (const position of positions) {
-      // The statement displays unit prices to cents, so the hidden true price can differ by up to 0.005 EUR per unit.
       const roundingTolerance = Math.abs(position.shares) * 0.005 + 0.02;
       const displayedProductDelta = position.shares * position.price - position.value;
       if (Math.abs(displayedProductDelta) > roundingTolerance) {
@@ -223,8 +217,6 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
       }
     }
 
-    // Market identifiers are required for the main and crypto pockets only.
-    // Non-listed assets are informational and intentionally excluded from performance/benchmark market-data lookups.
     const missingMarketSymbols = positions.filter(
       (position) => position.pocket !== 'Non cote' && position.symbol == null,
     ).length;
