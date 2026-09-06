@@ -5,9 +5,7 @@ import {
   type AllocationViewId,
 } from './allocation';
 import type { NetWorthSnapshot } from './domain';
-import { parseNetWorthPdf } from './net-worth';
-import { selectLatestTradeRepublicSources } from './source-refresh';
-import { publishUiSnapshot } from './snapshot-bridge';
+import { subscribeUiSnapshot } from './snapshot-bridge';
 
 const VIEW_ORDER: AllocationViewId[] = ['main', 'pea', 'ct', 'crypto'];
 
@@ -41,15 +39,6 @@ function formatNumber(value: number | null, digits = 2): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(value);
-}
-
-function sourceKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function expectedSnapshotDate(results: HTMLElement): string | null {
-  const text = results.querySelector<HTMLElement>('.section-heading h2')?.textContent ?? '';
-  return text.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
 }
 
 function legacyPositionsPanel(results: HTMLElement): HTMLElement | null {
@@ -153,12 +142,13 @@ function renderView(panel: HTMLElement, snapshot: NetWorthSnapshot, selected: Al
 function createPanel(snapshot: NetWorthSnapshot, selected: AllocationViewId, onSelect: (view: AllocationViewId) => void): HTMLElement {
   const panel = element('section', 'panel allocation-panel');
   panel.id = 'allocation-panel';
+  panel.dataset.snapshotDate = snapshot.snapshotDate;
   panel.append(
     element('h2', undefined, 'Allocation & concentration'),
     element(
       'p',
       'muted-block',
-      'Les poids utilisent la valeur officielle de chaque poche. Top 1 / Top 3 et HHI décrivent la concentration, sans changer le périmètre de performance.',
+      'Les poids utilisent la valeur officielle de chaque poche. Top 1 / Top 3 et HHI décrivent la concentration par ligne, sans changer le périmètre de performance.',
     ),
   );
 
@@ -186,71 +176,32 @@ function createPanel(snapshot: NetWorthSnapshot, selected: AllocationViewId, onS
 
 function setupAllocationUi(): boolean {
   const results = document.querySelector<HTMLElement>('.results');
-  const folderInput = document.querySelector<HTMLInputElement>('input[webkitdirectory]');
-  const pdfInput = [...document.querySelectorAll<HTMLInputElement>('input[type="file"]')]
-    .find((input) => input.accept.includes('.pdf'));
-  if (!results || !folderInput || !pdfInput) return false;
+  if (!results) return false;
   if (results.dataset.allocationBound === 'true') return true;
   results.dataset.allocationBound = 'true';
 
-  let pendingPdf: File | null = null;
-  let parsedKey: string | null = null;
-  let parsedSnapshot: NetWorthSnapshot | null = null;
+  let snapshot: NetWorthSnapshot | null = null;
   let selectedView: AllocationViewId = 'main';
-  let parseGeneration = 0;
   let scheduled = false;
 
-  const rememberPdf = (file: File | null): void => {
-    if (!file) return;
-    const key = sourceKey(file);
-    if (pendingPdf && sourceKey(pendingPdf) === key) return;
-    pendingPdf = file;
-    parsedKey = null;
-    parsedSnapshot = null;
-  };
-
-  folderInput.addEventListener('change', () => {
-    const files = [...(folderInput.files ?? [])];
-    if (files.length === 0) return;
-    try {
-      rememberPdf(selectLatestTradeRepublicSources(files).pdf);
-    } catch {
-      // Main ingestion owns the user-visible source error.
-    }
-  });
-
-  pdfInput.addEventListener('change', () => rememberPdf(pdfInput.files?.[0] ?? null));
-
-  const render = async (): Promise<void> => {
-    if (results.hidden || !pendingPdf) return;
-    const expectedDate = expectedSnapshotDate(results);
-    if (!expectedDate) return;
-
-    const pdfFile = pendingPdf;
-    const key = sourceKey(pdfFile);
-    if (parsedKey !== key) {
-      const generation = ++parseGeneration;
-      const snapshot = await parseNetWorthPdf(pdfFile);
-      if (generation !== parseGeneration) return;
-      parsedSnapshot = snapshot;
-      parsedKey = key;
-      publishUiSnapshot(snapshot);
-    }
-    if (!parsedSnapshot || parsedSnapshot.snapshotDate !== expectedDate) return;
-
+  const render = (): void => {
+    if (results.hidden || !snapshot) return;
+    const currentSnapshot = snapshot;
     const legacy = legacyPositionsPanel(results);
     if (legacy) legacy.hidden = true;
 
     const existing = results.querySelector<HTMLElement>('#allocation-panel');
-    if (existing?.dataset.sourceKey === key) return;
+    if (existing?.dataset.snapshotDate === currentSnapshot.snapshotDate) {
+      renderView(existing, currentSnapshot, selectedView);
+      return;
+    }
     existing?.remove();
 
-    const panel = createPanel(parsedSnapshot, selectedView, (view) => {
+    const panel = createPanel(currentSnapshot, selectedView, (view) => {
       selectedView = view;
       const current = results.querySelector<HTMLElement>('#allocation-panel');
-      if (current && parsedSnapshot) renderView(current, parsedSnapshot, selectedView);
+      if (current && snapshot) renderView(current, snapshot, selectedView);
     });
-    panel.dataset.sourceKey = key;
 
     if (legacy) legacy.before(panel);
     else results.append(panel);
@@ -261,11 +212,14 @@ function setupAllocationUi(): boolean {
     scheduled = true;
     queueMicrotask(() => {
       scheduled = false;
-      void render().catch(() => {
-        // The main analysis remains authoritative if the secondary allocation rendering fails.
-      });
+      render();
     });
   };
+
+  subscribeUiSnapshot((nextSnapshot) => {
+    snapshot = nextSnapshot;
+    schedule();
+  });
 
   const observer = new MutationObserver(() => schedule());
   observer.observe(results, { childList: true, subtree: true });
