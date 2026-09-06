@@ -87,6 +87,21 @@ function fastSourceHash(value: string): string {
     .join('');
 }
 
+const SOURCE_READ_TIMEOUT_MS = 15_000;
+
+async function withSourceTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Délai dépassé pendant ' + label + '. Réessaie ou retire l’export concerné du dossier.')), SOURCE_READ_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 function parsedSourceFingerprint(csvText: string, snapshot: NetWorthSnapshot): string {
   const pdfSemantics = JSON.stringify({
     snapshotDate: snapshot.snapshotDate,
@@ -451,12 +466,14 @@ folderInput.addEventListener('change', async () => {
     const inspectedCsvTexts = new Map<File, string>();
     const pair = await selectLatestTradeRepublicSourcesByContent(files, {
       pdfSnapshotDate: async (file) => {
-        const snapshot = await parseNetWorthPdf(file);
+        status.textContent = 'Inspection du relevé ' + file.name + '…';
+        const snapshot = await withSourceTimeout(parseNetWorthPdf(file), 'la lecture de ' + file.name);
         inspectedPdfSnapshots.set(file, snapshot);
         return snapshot.snapshotDate;
       },
       csvCoverage: async (file) => {
-        const csvText = await file.text();
+        status.textContent = 'Inspection des transactions ' + file.name + '…';
+        const csvText = await withSourceTimeout(file.text(), 'la lecture de ' + file.name);
         inspectedCsvTexts.set(file, csvText);
         const transactions = parseTransactions(csvText);
         const lastDate = transactions.reduce<string | null>((latest, transaction) => {
