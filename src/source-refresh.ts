@@ -51,6 +51,22 @@ export function selectLatestTradeRepublicSources(files: readonly File[]): TradeR
   return { csv: newest(csvFiles)!, pdf: newest(pdfFiles)! };
 }
 
+/**
+ * iPhone-first folder workflow: the dedicated import folder is expected to
+ * contain exactly one current Trade Republic CSV and one current Net Worth PDF.
+ * Ambiguity is deliberately rejected instead of opening/parsing multiple files.
+ */
+export function selectSingleTradeRepublicSources(files: readonly File[]): TradeRepublicSourcePair {
+  const { csvFiles, pdfFiles } = matchingSources(files);
+  if (csvFiles.length !== 1 || pdfFiles.length !== 1) {
+    throw new Error(
+      `Plusieurs exports Trade Republic détectés (${pdfFiles.length} Net Worth PDF, ${csvFiles.length} Transaction CSV). ` +
+      'Sélection automatique désactivée : utilise « Sources et import manuel » ou remplace les anciens exports dans le dossier.',
+    );
+  }
+  return { csv: csvFiles[0]!, pdf: pdfFiles[0]! };
+}
+
 function validIsoDate(value: string | null): boolean {
   if (value == null) return true;
   if (!ISO_DATE.test(value)) return false;
