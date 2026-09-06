@@ -1,5 +1,7 @@
 const SESSION_KEY = 'portfolio-dashboard-v5:diagnostic-log';
 const MAX_ENTRIES = 200;
+const DIAGNOSTICS_ENABLED = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('diagnostics') === '1';
 
 type DiagnosticEntry = {
   ts: string;
@@ -50,6 +52,7 @@ function renderEntry(entry: DiagnosticEntry): void {
 }
 
 export function diagLog(message: string): void {
+  if (!DIAGNOSTICS_ENABLED) return;
   const entry: DiagnosticEntry = {
     ts: nowLabel(),
     elapsedMs: performance.now() - sessionStart,
@@ -62,6 +65,7 @@ export function diagLog(message: string): void {
 }
 
 export function diagFile(label: string, file: File): void {
+  if (!DIAGNOSTICS_ENABLED) return;
   const relativePath = 'webkitRelativePath' in file ? file.webkitRelativePath : '';
   diagLog(
     `${label}: name=${file.name}; size=${file.size} B; type=${file.type || '(vide)'}; lastModified=${new Date(file.lastModified).toISOString()}; relativePath=${relativePath || '(aucun)'}`,
@@ -171,6 +175,7 @@ function logEnvironment(): void {
 
 function init(): void {
   if (
+    !DIAGNOSTICS_ENABLED ||
     typeof window === 'undefined' ||
     typeof document === 'undefined' ||
     typeof MutationObserver === 'undefined' ||
