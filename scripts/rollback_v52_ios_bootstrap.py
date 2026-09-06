@@ -123,4 +123,3 @@ text = text.replace(
 main.write_text(text)
 
 Path('src/app.ts').unlink(missing_ok=True)
-Path('src/file-read.ts').unlink(missing_ok=True)
