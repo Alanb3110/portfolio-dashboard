@@ -208,6 +208,7 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
     }
 
     for (const position of positions) {
+      // The statement displays unit prices to cents, so the hidden true price can differ by up to 0.005 EUR per unit.
       const roundingTolerance = Math.abs(position.shares) * 0.005 + 0.02;
       const displayedProductDelta = position.shares * position.price - position.value;
       if (Math.abs(displayedProductDelta) > roundingTolerance) {
@@ -217,6 +218,8 @@ export function parseNetWorthText(text: string): NetWorthSnapshot {
       }
     }
 
+    // Market identifiers are required for the main and crypto pockets only.
+    // Non-listed assets are informational and intentionally excluded from performance/benchmark market-data lookups.
     const missingMarketSymbols = positions.filter(
       (position) => position.pocket !== 'Non cote' && position.symbol == null,
     ).length;
