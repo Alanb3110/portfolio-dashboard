@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   finalize:
-    if: ${{ !contains(github.event.head_commit.message, '[release-finalized]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,17 +25,18 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace(path, old, new):
+          def replace_if_needed(path, old, new):
               p = Path(path)
               text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'Expected text not found in {path}: {old}')
-              p.write_text(text.replace(old, new))
+              if old in text:
+                  p.write_text(text.replace(old, new))
+              elif new not in text:
+                  raise SystemExit(f'Neither old nor new release marker found in {path}')
 
-          replace('src/main.ts', "Portfolio Dashboard v5'", "Portfolio Dashboard v5.1'")
-          replace('worker/src/index.js', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
-          replace('worker/smoke-test.mjs', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
-          replace('worker/README.md', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+          replace_if_needed('src/main.ts', "Portfolio Dashboard v5'", "Portfolio Dashboard v5.1'")
+          replace_if_needed('worker/src/index.js', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+          replace_if_needed('worker/smoke-test.mjs', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
+          replace_if_needed('worker/README.md', "2026-09-05-v5.1-readiness", "2026-09-06-v5.1.0")
 
           Path('README.md').write_text('''# Portfolio Dashboard v5.1
 
@@ -172,10 +172,14 @@ Bug fixes, compatibility fixes and UI improvements may remain within the v5.1 li
           node worker/smoke-test.mjs
           node worker/check-config.mjs
           npx wrangler deploy --dry-run
-      - name: Commit release metadata
+      - name: Commit release metadata if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md docs/RELEASE_V5.1.md src/main.ts worker/src/index.js worker/smoke-test.mjs worker/README.md
+          if git diff --cached --quiet; then
+            echo "Release metadata already finalized."
+            exit 0
+          fi
           git commit -m "[release-finalized] Freeze Portfolio Dashboard v5.1.0"
           git push
