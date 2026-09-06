@@ -76,10 +76,31 @@ Solver policy:
 
 ## Benchmark policy
 
-World and S&P 500 remain useful context, but benchmark reconstruction is no longer allowed to block the local portfolio analysis.
+World and S&P 500 are production benchmark context for the **main portfolio only**.
 
-The future benchmark adapter should use only the minimum external market data necessary. Exact methodology will be frozen after the market-data feasibility test; it is not silently inherited from v4.
+The primary method is the frozen forward matched-flow method documented in `docs/BENCHMARK.md`:
+
+- same starting value as the first saved v5 baseline snapshot;
+- same subsequent canonical main cash flows on the same dates;
+- fixed MSCI World and S&P 500 Xetra proxies;
+- local incremental checkpoints;
+- no personal portfolio payload sent to the market Worker;
+- benchmark/provider failure never blocks local portfolio analytics.
+
+The production market path is the restricted Cloudflare Worker backed by EODHD. This does not change the deterministic local analytical scope.
+
+For aligned periods under 30 days, benchmark and portfolio XIRR are intentionally hidden because annualization is not decision-useful; terminal matched-flow value gaps remain valid context.
+
+## Historical observations
+
+Historical portfolio evolution is based only on saved official snapshots. No reconstructed daily NAV or interpolation is presented as observed portfolio history.
+
+A future v5.2 UI may derive **period economic P&L between two saved snapshots** using the same frozen canonical cash-flow convention. Such a period calculation is not daily NAV reconstruction and does not alter the 5.1 methodology if it uses the existing scope/sign/cutoff rules unchanged.
 
 ## Removed from the critical path
 
 Daily reconstructed TTWROR, daily historical NAV backfill and realized-risk metrics based on that reconstructed series are not v5 acceptance criteria.
+
+## Versioning rule
+
+The current frozen financial methodology is `5.1`. A later application/package release such as v5.2 may retain methodology `5.1` when it changes only product UX, testing, robustness or presentation. Any change to scope, canonical cash-flow mapping, XIRR convention, benchmark replay/checkpoint semantics or history methodology requires an explicit methodology-version decision.
