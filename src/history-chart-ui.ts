@@ -69,7 +69,16 @@ function seriesPath(
   return path;
 }
 
-function renderSvg(points: HistoryChartPoint[]): SVGSVGElement {
+function historyPointAriaLabel(point: HistoryChartPoint): string {
+  return [
+    point.date,
+    `Portefeuille ${formatEur(point.portfolio)}`,
+    `MSCI World ${formatEur(point.world)}`,
+    `S&P 500 ${formatEur(point.sp500)}`,
+  ].join(' · ');
+}
+
+function renderSvg(points: HistoryChartPoint[], onSelect: (point: HistoryChartPoint) => void): SVGSVGElement {
   const width = 720;
   const height = 280;
   const left = 62;
@@ -99,8 +108,8 @@ function renderSvg(points: HistoryChartPoint[]): SVGSVGElement {
   const svg = svgNode('svg');
   svg.classList.add('history-chart-svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Évolution sparse du portefeuille principal et des benchmarks matched-flow');
+  svg.setAttribute('role', 'group');
+  svg.setAttribute('aria-label', 'Évolution sparse du portefeuille principal et des benchmarks matched-flow. Touchez ou sélectionnez un point du portefeuille pour lire le snapshot.');
 
   for (const fraction of [0, 0.5, 1]) {
     const value = maxValue - (maxValue - minValue) * fraction;
@@ -164,6 +173,25 @@ function renderSvg(points: HistoryChartPoint[]): SVGSVGElement {
     }
   }
 
+  for (const point of points) {
+    const hit = svgNode('circle');
+    hit.setAttribute('cx', String(x(point.date)));
+    hit.setAttribute('cy', String(y(point.portfolio)));
+    hit.setAttribute('r', '18');
+    hit.setAttribute('tabindex', '0');
+    hit.setAttribute('role', 'button');
+    hit.setAttribute('aria-label', historyPointAriaLabel(point));
+    hit.classList.add('history-hit-target');
+    const activate = (): void => onSelect(point);
+    hit.addEventListener('click', activate);
+    hit.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      activate();
+    });
+    svg.append(hit);
+  }
+
   return svg;
 }
 
@@ -181,6 +209,27 @@ function renderLegend(latest: HistoryChartPoint): HTMLElement {
     legend.append(row);
   }
   return legend;
+}
+
+function renderSelectedSnapshot(container: HTMLElement, point: HistoryChartPoint): void {
+  container.replaceChildren();
+  const heading = element('div', 'history-touch-detail-heading');
+  heading.append(
+    element('span', 'allocation-kpi-label', 'Snapshot sélectionné'),
+    element('strong', undefined, point.date),
+  );
+  const values = element('div', 'history-touch-detail-grid');
+  const entries: Array<[string, number | null]> = [
+    ['Portefeuille', point.portfolio],
+    ['MSCI World', point.world],
+    ['S&P 500', point.sp500],
+  ];
+  for (const [label, value] of entries) {
+    const item = element('div', 'history-touch-detail-item');
+    item.append(element('span', undefined, label), element('strong', undefined, formatEur(value)));
+    values.append(item);
+  }
+  container.append(heading, values);
 }
 
 function renderLastStoredPeriod(snapshots: HistorySnapshot[]): HTMLElement | null {
@@ -242,7 +291,15 @@ async function renderHistoryPanel(panel: HTMLElement): Promise<void> {
     return;
   }
 
-  panel.append(renderSvg(points), renderLegend(points.at(-1)!));
+  const selected = element('div', 'history-touch-detail');
+  renderSelectedSnapshot(selected, points.at(-1)!);
+  const chart = renderSvg(points, (point) => renderSelectedSnapshot(selected, point));
+  panel.append(
+    chart,
+    element('p', 'history-touch-hint', 'Touchez un point du portefeuille pour lire ce snapshot.'),
+    selected,
+    renderLegend(points.at(-1)!),
+  );
 
   const missingWorld = points.slice(1).some((point) => point.world == null);
   const missingSp500 = points.slice(1).some((point) => point.sp500 == null);

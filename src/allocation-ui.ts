@@ -99,10 +99,10 @@ function renderView(panel: HTMLElement, snapshot: NetWorthSnapshot, selected: Al
 
   const kpis = element('div', 'allocation-kpis');
   kpis.append(
-    concentrationMetric('Top 1', reliable ? formatPercent(view.top1Weight) : 'N/A', 'Poids de la plus grosse ligne'),
-    concentrationMetric('Top 3', reliable ? formatPercent(view.top3Weight) : 'N/A', 'Poids cumulé des 3 premières'),
-    concentrationMetric('HHI', reliable ? formatNumber(view.hhi, 3) : 'N/A', 'Somme des poids² ; plus bas = plus dispersé'),
-    concentrationMetric('N équiv.', reliable ? formatNumber(view.effectivePositionCount, 1) : 'N/A', '1 / HHI en positions équipondérées'),
+    concentrationMetric('Top 1 ligne', reliable ? formatPercent(view.top1Weight) : 'N/A', 'Poids de la plus grosse ligne'),
+    concentrationMetric('Top 3 lignes', reliable ? formatPercent(view.top3Weight) : 'N/A', 'Poids cumulé des 3 plus grosses lignes'),
+    concentrationMetric('HHI lignes', reliable ? formatNumber(view.hhi, 3) : 'N/A', 'Somme des poids² par ligne ; plus bas = plus dispersé'),
+    concentrationMetric('N lignes équiv.', reliable ? formatNumber(view.effectivePositionCount, 1) : 'N/A', '1 / HHI en lignes équipondérées'),
   );
 
   const content = panel.querySelector<HTMLElement>('.allocation-view-content');
@@ -148,7 +148,7 @@ function createPanel(snapshot: NetWorthSnapshot, selected: AllocationViewId, onS
     element(
       'p',
       'muted-block',
-      'Les poids utilisent la valeur officielle de chaque poche. Top 1 / Top 3 et HHI décrivent la concentration par ligne, sans changer le périmètre de performance.',
+      'Concentration par ligne uniquement : un ETF compte comme une seule ligne. Top 1 / Top 3, HHI et N équivalent ne mesurent donc pas la diversification économique look-through de ses sous-jacents.',
     ),
   );
 
