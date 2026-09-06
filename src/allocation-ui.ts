@@ -227,10 +227,4 @@ function setupAllocationUi(): boolean {
   return true;
 }
 
-if (!setupAllocationUi()) {
-  const observer = new MutationObserver(() => {
-    if (!setupAllocationUi()) return;
-    observer.disconnect();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-}
+if (!setupAllocationUi()) throw new Error('Allocation UI bootstrap requires the main results container.');
