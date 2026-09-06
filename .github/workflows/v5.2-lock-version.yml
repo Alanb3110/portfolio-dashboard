@@ -1,0 +1,42 @@
+name: v5.2 lockfile metadata fix
+
+on:
+  push:
+    branches: [chore/v5.2-lock-version]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-lock-version:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/v5.2-lock-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Align lockfile application version metadata
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'package-lock.json';
+          const lock = JSON.parse(fs.readFileSync(path, 'utf8'));
+          lock.version = '5.2.0';
+          if (!lock.packages?.['']) throw new Error('package-lock root package metadata missing');
+          lock.packages[''].version = '5.2.0';
+          fs.writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`);
+          NODE
+      - name: Commit lockfile-only change
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo 'Lockfile metadata already aligned.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          git commit -m 'Align package-lock version with v5.2.0'
+          git push origin HEAD:chore/v5.2-lock-version
