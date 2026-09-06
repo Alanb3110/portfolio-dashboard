@@ -43,7 +43,7 @@ function persistEntries(): void {
 }
 
 function renderEntry(entry: DiagnosticEntry): void {
-  if (!listElement) return;
+  if (!listElement || typeof document === 'undefined') return;
   const item = document.createElement('li');
   item.textContent = `${entry.ts} · +${(entry.elapsedMs / 1000).toFixed(3)} s · ${entry.message}`;
   listElement.append(item);
@@ -170,6 +170,14 @@ function logEnvironment(): void {
 }
 
 function init(): void {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined' ||
+    typeof MutationObserver === 'undefined'
+  ) {
+    return;
+  }
+
   loadPersistedEntries();
   installStatusObserver();
   installFileObservers();
