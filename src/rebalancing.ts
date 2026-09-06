@@ -38,6 +38,33 @@ export interface RebalancingResult {
   staleTargetIds: string[];
 }
 
+export interface ContributionRebalancingRow {
+  id: string;
+  name: string;
+  symbol: string | null;
+  pocket: 'Compte-titres' | 'PEA';
+  targetWeight: number;
+  currentValue: number;
+  currentWeight: number;
+  purchaseEur: number;
+  projectedValue: number;
+  projectedWeight: number;
+  projectedDriftWeight: number;
+}
+
+export interface ContributionRebalancingResult {
+  status: 'PASS' | 'INCOMPATIBLE' | 'N/A';
+  note: string;
+  contributionEur: number;
+  currentMainValue: number;
+  projectedMainValue: number;
+  rows: ContributionRebalancingRow[];
+  maxCurrentAbsDrift: number | null;
+  maxProjectedAbsDrift: number | null;
+  missingTargetIds: string[];
+  staleTargetIds: string[];
+}
+
 function text(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`Invalid ${label}.`);
   return value;
@@ -160,6 +187,115 @@ export function computeRebalancing(
     rows,
     maxAbsDrift,
     internalReallocationEur,
+    missingTargetIds: [],
+    staleTargetIds: [],
+  };
+}
+
+export function computeContributionRebalancing(
+  snapshot: NetWorthSnapshot,
+  config: RebalancingTargetConfig,
+  contributionEur: number,
+): ContributionRebalancingResult {
+  const base = computeRebalancing(snapshot, config);
+  if (!Number.isFinite(contributionEur) || contributionEur < 0) {
+    return {
+      status: 'N/A',
+      note: 'Contribution must be a finite non-negative euro amount.',
+      contributionEur,
+      currentMainValue: base.mainValue,
+      projectedMainValue: base.mainValue,
+      rows: [],
+      maxCurrentAbsDrift: base.maxAbsDrift,
+      maxProjectedAbsDrift: null,
+      missingTargetIds: base.missingTargetIds,
+      staleTargetIds: base.staleTargetIds,
+    };
+  }
+  if (base.status !== 'PASS') {
+    return {
+      status: base.status,
+      note: base.note,
+      contributionEur,
+      currentMainValue: base.mainValue,
+      projectedMainValue: base.mainValue + contributionEur,
+      rows: [],
+      maxCurrentAbsDrift: base.maxAbsDrift,
+      maxProjectedAbsDrift: null,
+      missingTargetIds: base.missingTargetIds,
+      staleTargetIds: base.staleTargetIds,
+    };
+  }
+
+  const projectedMainValue = base.mainValue + contributionEur;
+  if (projectedMainValue <= 0) {
+    return {
+      status: 'N/A',
+      note: 'Projected main-portfolio value must be positive.',
+      contributionEur,
+      currentMainValue: base.mainValue,
+      projectedMainValue,
+      rows: [],
+      maxCurrentAbsDrift: base.maxAbsDrift,
+      maxProjectedAbsDrift: null,
+      missingTargetIds: [],
+      staleTargetIds: [],
+    };
+  }
+
+  const deficits = base.rows.map((row) => ({
+    row,
+    positiveDeficit: Math.max(0, row.targetWeight * projectedMainValue - row.currentValue),
+  }));
+  const totalPositiveDeficit = deficits.reduce((sum, item) => sum + item.positiveDeficit, 0);
+  const scale = contributionEur > 0 && totalPositiveDeficit > 0
+    ? Math.min(1, contributionEur / totalPositiveDeficit)
+    : 0;
+
+  const rows = deficits.map(({ row, positiveDeficit }) => {
+    const purchaseEur = positiveDeficit * scale;
+    const projectedValue = row.currentValue + purchaseEur;
+    const projectedWeight = projectedValue / projectedMainValue;
+    return {
+      id: row.id,
+      name: row.name,
+      symbol: row.symbol,
+      pocket: row.pocket,
+      targetWeight: row.targetWeight,
+      currentValue: row.currentValue,
+      currentWeight: row.currentWeight,
+      purchaseEur,
+      projectedValue,
+      projectedWeight,
+      projectedDriftWeight: projectedWeight - row.targetWeight,
+    } satisfies ContributionRebalancingRow;
+  }).sort((a, b) => b.purchaseEur - a.purchaseEur || Math.abs(b.projectedDriftWeight) - Math.abs(a.projectedDriftWeight));
+
+  const allocated = rows.reduce((sum, row) => sum + row.purchaseEur, 0);
+  if (Math.abs(allocated - contributionEur) > Math.max(0.01, contributionEur * 1e-9)) {
+    return {
+      status: 'N/A',
+      note: 'Buy-only contribution allocation could not allocate the requested amount consistently.',
+      contributionEur,
+      currentMainValue: base.mainValue,
+      projectedMainValue,
+      rows: [],
+      maxCurrentAbsDrift: base.maxAbsDrift,
+      maxProjectedAbsDrift: null,
+      missingTargetIds: [],
+      staleTargetIds: [],
+    };
+  }
+
+  return {
+    status: 'PASS',
+    note: 'Buy-only steering: the contribution is distributed proportionally across positive post-contribution target deficits; no sale is assumed.',
+    contributionEur,
+    currentMainValue: base.mainValue,
+    projectedMainValue,
+    rows,
+    maxCurrentAbsDrift: base.maxAbsDrift,
+    maxProjectedAbsDrift: rows.length > 0 ? Math.max(...rows.map((row) => Math.abs(row.projectedDriftWeight))) : null,
     missingTargetIds: [],
     staleTargetIds: [],
   };
