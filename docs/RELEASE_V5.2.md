@@ -1,121 +1,190 @@
 # Portfolio Dashboard v5.2.0 — release record
 
-Status: **release candidate — pending final iPhone validation**  
+Status: **validated — ready for immutable freeze**  
 Application/package version: **5.2.0**  
 Financial methodology version: **5.1 (unchanged)**  
-Baseline: `frozen/v5.1.0` / `92ca8f61bdfd25c5733357789ed63425ec61f292`
+Historical baseline retained: `frozen/v5.1.0` / `92ca8f61bdfd25c5733357789ed63425ec61f292`  
+Validated implementation commit: `8e0275547e733c7f6fc2232fa7a603e387a5598f`
+
+Detailed evidence: [`docs/VALIDATION_V5.2.md`](./VALIDATION_V5.2.md)
 
 ## Release intent
 
-v5.2 is a product, robustness and maintainability release. It does **not** redefine the financial engine validated in v5.1.
+v5.2 is a product, robustness and maintainability release. It does **not** redefine the financial methodology validated in v5.1.
 
-The user-facing objective is:
-
-> update once → understand the latest observed period → decide how to allocate the next contribution
+The final release priority is reliability on the iPhone-first local workflow rather than additional analytical complexity.
 
 ## Financial conventions preserved
 
-The following v5.1 conventions are unchanged:
+The following v5.1 conventions remain unchanged:
 
 - main portfolio = Compte-titres + PEA;
-- crypto excluded from main performance/benchmark comparison and shown separately;
+- crypto excluded from main performance/benchmark comparison and analysed separately;
 - private markets and cash excluded from main performance;
 - canonical main cash-flow mapping and signs;
 - economic P&L convention;
 - XIRR and 365-day basis;
 - strict cutoff at the official Net Worth snapshot date;
 - forward matched-flow MSCI World / S&P 500 benchmarks;
-- identical baseline value and subsequent cash-flow schedule for portfolio/benchmarks;
+- identical baseline value and subsequent canonical cash-flow schedule for portfolio/benchmarks;
 - incremental local benchmark checkpoints and look-ahead protection;
 - snapshot-only historical observations;
 - no reconstructed daily NAV or TTWROR backfill.
 
-Any future change to those rules remains a methodology-version change and is outside this release.
+Any future modification of scope, cash-flow semantics, benchmark replay/checkpoint semantics, price-date causality or XIRR convention requires an explicit methodology-version decision.
 
-## Product changes
+## Final iPhone import workflow
 
-### One-tap iPhone workflow
+The validated folder workflow is deliberately strict:
 
-The primary action is now `Actualiser et enregistrer`:
+- exactly one matching `Net Worth.pdf`;
+- exactly one matching `Transaction export.csv`;
+- suffixed Trade Republic download names remain accepted when unambiguous;
+- multiple matching PDFs or CSVs are rejected rather than inspected/ranked automatically;
+- manual two-file analysis remains available;
+- raw PDF/CSV files are never persisted by Portfolio Dashboard.
 
-1. inspect the selected local folder;
-2. choose the financially most recent valid Trade Republic PDF/CSV sources;
-3. run the existing local analysis;
-4. store the derived History v2 snapshot locally.
+`Actualiser et enregistrer` is a single-pass workflow:
 
-Manual `Analyser sans enregistrer` and manual snapshot save remain available. Raw source files and the normalized ledger are still not persisted.
+1. select the unique PDF/CSV pair;
+2. read and analyse it once;
+3. render the local analysis once;
+4. persist the derived snapshot without forcing a second analysis render.
 
-### Safer folder-source selection
+## v5.2 robustness corrections
 
-A re-downloaded older file can no longer silently win solely because its filesystem `lastModified` is newer.
+### PERF-1 — PR #59
 
-- Net Worth candidates are ranked by parsed official snapshot date;
-- CSV candidates are ranked by transaction coverage;
-- unreadable matching candidates are ignored with explicit feedback;
-- refresh refuses an accidental regression behind the newest saved local snapshot.
+- removed Allocation/Rebalancing render loops driven by result-container MutationObservers;
+- stopped idle DOM/microtask/IndexedDB churn from those modules.
 
-### Performance between observed snapshots
+### PERF-2 — PR #60
 
-For compatible observed snapshots, v5.2 separates:
+- verbose diagnostics disabled by default;
+- diagnostics remain explicitly available with `?diagnostics=1`;
+- no normal-runtime diagnostic heartbeat/observer/logging loop.
 
-- flow-adjusted economic P&L;
-- net money invested/withdrawn from the main holdings scope;
-- raw portfolio-value change.
+### PERF-3 — PR #62
 
-The direct period identity is:
+- folder refresh made single-pass;
+- no second `renderAnalysis()` after persistence;
+- no duplicate World/S&P benchmark launch caused by the refresh path;
+- busy state remains active through the complete workflow.
 
-`period P&L = terminal value - starting value + canonical cash flows in (T0, T1]`
+### CLEAN-1 — PR #63
 
-Stored-history presentation is conservative: it is shown only when the two records are methodology 5.1 and have compatible known ledger coverage. Otherwise it is `N/A` rather than inferred.
+- removed abandoned multi-export import paths;
+- removed the old SHA-256 file fingerprint path;
+- removed the unused FileReader helper and obsolete tests;
+- preserved the validated iPhone bootstrap and strict one-PDF/one-CSV workflow.
 
-### Contribution-first rebalancing
+### Benchmark partial-data correction — PR #65
 
-Given an explicitly entered EUR contribution and user-defined target weights, the dashboard produces a buy-only mechanical allocation:
+Depth validation found one P0 correctness issue: a missing weekday flow-date benchmark price could be silently replaced by the next available close.
 
-- no negative purchase;
-- no implicit sale;
-- purchases sum to the entered contribution within numerical tolerance;
-- projected post-contribution weights/drift are shown.
+The corrected conservative behavior is:
 
-Whole-share constraints, execution prices, fees and tax are deliberately not modelled.
+- exact flow-date close when available;
+- weekend flow may use the first causal close after the flow date;
+- missing weekday flow-date close -> benchmark `N/A`;
+- no future close is used.
 
-### Allocation / concentration clarity
+This preserves matched-flow semantics while preventing an interior provider-data gap from being reported as a valid `PASS` benchmark.
 
-Concentration is explicitly labelled at portfolio-line level:
+A weekday Xetra holiday without a close is therefore conservatively `N/A` in the absence of an authoritative exchange-calendar dependency. This is an accepted availability limitation, not silent interpolation.
 
-- Top 1 ligne;
-- Top 3 lignes;
-- HHI lignes;
+## History and period interpretation
+
+Historical portfolio evolution remains sparse and observational: only saved official snapshots are shown.
+
+For two compatible methodology-5.1 snapshots sharing the same known ledger start date, v5.2 can derive period economic P&L from the frozen cumulative convention. If ledger coverage is unknown or changes, period performance is explicitly `N/A`.
+
+Missing historical benchmark observations remain missing. The chart does not invent intermediate benchmark or portfolio observations.
+
+## Allocation and rebalancing
+
+Allocation/concentration remains line-level rather than ETF look-through:
+
+- Top 1 line;
+- Top 3 lines;
+- HHI lines;
 - equivalent number of lines.
 
-An ETF remains one line; these metrics must not be interpreted as look-through economic diversification of ETF constituents.
+Contribution steering remains buy-only:
 
-### Sparse-history UX
+- explicit user-entered EUR contribution;
+- no negative purchase;
+- no implicit sale;
+- deterministic target-weight steering;
+- whole-share execution, fees and tax are not modelled.
 
-The history remains based only on saved observations. v5.2 adds larger touch targets and an exact snapshot inspector for portfolio / MSCI World / S&P 500 values. Missing benchmark observations remain missing; no interpolation is introduced.
+## Deterministic depth validation
 
-## Maintainability and test changes
+The final validation suite adds deterministic financial and runtime evidence without using real user data or Internet market data.
 
-- added a built-production UI integration smoke test using synthetic data only;
-- authoritative parsed snapshot is shared across UI modules instead of being reparsed independently for allocation;
-- deterministic single application entry point replaces five independent module entries;
-- unnecessary startup observers/panel-order assumptions were reduced while runtime rerender observers were retained where needed.
+Validated cases include:
 
-## Automated validation before RC
+- 30-snapshot history ordering, latest/previous selection, raw variation and sparse benchmark points;
+- contribution and withdrawal/sale cash-flow signs;
+- independently calculated MSCI World and S&P 500 matched-flow terminal values;
+- incomplete benchmark data and no-price cases;
+- compatible/incompatible/unknown ledger start dates;
+- allocation weights, Top1, Top3, HHI and equivalent N;
+- current rebalancing and buy-only semantics;
+- isolated IndexedDB save, same-date overwrite, reload, backup round-trip/import and erase;
+- no raw source keys persisted by History;
+- 100-snapshot import/reload and built-PWA rendering;
+- exact selection of an intermediate history point;
+- bounded DOM and observer activity;
+- zero continuing MutationObserver/IndexedDB/DOM growth after stabilization;
+- single folder-analysis pipeline and single benchmark-panel orchestration invariant.
 
-Latest pre-release implementation CI:
+Final depth run observations:
 
-- TypeScript typecheck: PASS;
-- Vitest: **97 tests / 14 files PASS**;
-- PWA smoke: PASS;
-- built-production UI smoke: PASS;
-- IndexedDB reload continuity in UI smoke: PASS;
-- Worker smoke: PASS;
-- Wrangler config mirror check: PASS;
-- Wrangler deployment dry-run: PASS;
-- npm audit during CI install: 0 reported vulnerabilities.
+- **110 tests / 19 files PASS**;
+- 100 saved synthetic snapshots rendered;
+- **442 DOM nodes** in the built 100-snapshot test;
+- **4 MutationObserver instances**;
+- **15 observer callbacks during initialization**;
+- **5 IndexedDB opens after instrumentation**;
+- callback count, IndexedDB opens and DOM-node count remain unchanged during the idle observation window.
 
-The built JS entry is approximately 517 kB minified / 155 kB gzip. Vite therefore emits its >500 kB advisory. This is recorded as a non-blocking performance/maintainability observation, not a financial or functional failure; no code-splitting change is introduced solely to silence the warning before real-device evidence warrants it.
+These counts are CI regression invariants, not direct measurements of iPhone CPU load or temperature.
+
+## Real-device validation
+
+After PERF-1 / PERF-2 / PERF-3 / CLEAN-1, validation on a real iPhone reported:
+
+- correct application opening;
+- correct import and analysis;
+- correct snapshot persistence;
+- fluid navigation;
+- no abnormal heating observed;
+- no obvious lag observed;
+- no crash / black screen observed during the validation session.
+
+The previous iPhone stability regression is therefore considered corrected unless new contrary evidence appears.
+
+## Automated release gate
+
+On the validated implementation commit `8e0275547e733c7f6fc2232fa7a603e387a5598f`:
+
+- TypeScript typecheck: **PASS**;
+- Vitest: **110 / 110 PASS**;
+- PWA smoke: **PASS**;
+- built-production UI smoke: **PASS**;
+- deterministic depth smoke: **PASS**;
+- isolated IndexedDB lifecycle: **PASS**;
+- 100-snapshot volume test: **PASS**;
+- idle render/storage stability invariant: **PASS**;
+- Worker smoke: **PASS**;
+- Wrangler config mirror check: **PASS**;
+- Wrangler deployment dry-run: **PASS**;
+- post-merge `main` CI: **PASS**;
+- GitHub Pages build: **PASS**;
+- GitHub Pages deploy: **PASS**.
+
+The production bundle still emits Vite's >500 kB advisory. No code splitting is introduced solely to silence that warning because the validated real-device behavior is good and this release deliberately avoids unnecessary complexity.
 
 ## Privacy boundary
 
@@ -124,28 +193,21 @@ Unchanged from v5.1:
 - PDF/CSV remain local;
 - raw ledger is not persisted;
 - only derived history/checkpoints/target configuration are stored locally;
-- Worker requests contain benchmark ID + date range only;
-- no personal holding, flow, NAV, P&L or XIRR data is sent to Cloudflare/EODHD.
+- Worker requests contain benchmark ID + bounded date range only;
+- no personal holding, flow, NAV, P&L or XIRR payload is sent to Cloudflare/EODHD.
 
 ## Production infrastructure
 
-No Worker methodology/provider change is part of v5.2. The existing EODHD-backed restricted Cloudflare Worker, `/health` readiness semantics, canonical cache, rate limiter, Wrangler pin and root/worker config synchronization remain in place.
+No Worker or EODHD implementation change was required for the v5.2 depth-validation correction. The existing restricted Cloudflare market proxy remains unchanged.
 
-## Final release gate
+## Freeze decision
 
-Before changing this document to **frozen/validated** and creating `frozen/v5.2.0`, complete the following on the deployed `main` build:
+**A — Portfolio Dashboard v5.2.0 is ready to be frozen.**
 
-- [ ] GitHub Pages deploy green for the 5.2.0 candidate;
-- [ ] Cloudflare production build/readiness healthy;
-- [ ] installed iPhone PWA visibly reports v5.2;
-- [ ] `Actualiser et enregistrer` succeeds with current Trade Republic exports;
-- [ ] same-date repeat refresh does not create duplicate history;
-- [ ] closing/reopening the PWA preserves derived history;
-- [ ] MSCI World and S&P 500 remain populated/non-blocking;
-- [ ] allocation tabs and line-level concentration render correctly;
-- [ ] next-contribution planner accepts a test amount and returns buy-only EUR suggestions;
-- [ ] sparse-history touch inspection works on real iPhone;
-- [ ] manual `Analyser sans enregistrer` remains available;
-- [ ] no unexpected privacy/network behavior is observed.
+Freeze policy:
 
-After successful manual validation, record the final `main` commit here, create immutable branch `frozen/v5.2.0`, and optionally tag/release `v5.2.0`.
+- preserve `frozen/v5.1.0` unchanged;
+- merge this release record with CI green;
+- create `frozen/v5.2.0` at the resulting release-record commit;
+- create tag/release `v5.2.0` at the same commit when available;
+- treat that reference as immutable.
