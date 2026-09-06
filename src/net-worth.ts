@@ -4,6 +4,31 @@ import type { NetWorthSnapshot, NetWorthSummary, PositionPocket, SnapshotPositio
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+const PDF_STAGE_TIMEOUT_MS = 15_000;
+
+function reportPdfStage(message: string): void {
+  if (typeof document === 'undefined') return;
+  const status = document.querySelector<HTMLElement>('.quick-status') ?? document.querySelector<HTMLElement>('.status');
+  if (status) status.textContent = message;
+}
+
+async function withPdfTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Délai PDF dépassé pendant ${label} (${PDF_STAGE_TIMEOUT_MS / 1000} s).`)),
+          PDF_STAGE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function parseFrenchNumber(raw: string): number {
   const compact = raw.replace(/[\s\u00a0]/g, '');
   let normalized = compact;
@@ -24,13 +49,21 @@ interface PositionedText {
 }
 
 async function extractLayoutText(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const document = await getDocument({ data: bytes }).promise;
-  const pages: string[] = [];
+  reportPdfStage(`PDF 1/5 · Lecture des octets ${file.name}…`);
+  const buffer = await withPdfTimeout(file.arrayBuffer(), 'la lecture des octets du fichier');
+  const bytes = new Uint8Array(buffer);
+  reportPdfStage(`PDF 2/5 · ${Math.ceil(bytes.byteLength / 1024)} ko chargés · Initialisation PDF.js…`);
 
-  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-    const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
+  const loadingTask = getDocument({ data: bytes });
+  const pdfDocument = await withPdfTimeout(loadingTask.promise, 'l’initialisation PDF.js');
+  reportPdfStage(`PDF 3/5 · Document ouvert · ${pdfDocument.numPages} page(s)…`);
+
+  const pages: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    reportPdfStage(`PDF 4/5 · Chargement page ${pageNumber}/${pdfDocument.numPages}…`);
+    const page = await withPdfTimeout(pdfDocument.getPage(pageNumber), `le chargement de la page ${pageNumber}`);
+    reportPdfStage(`PDF 4/5 · Extraction texte page ${pageNumber}/${pdfDocument.numPages}…`);
+    const content = await withPdfTimeout(page.getTextContent(), `l’extraction texte de la page ${pageNumber}`);
     const items: PositionedText[] = [];
 
     for (const item of content.items) {
@@ -62,6 +95,7 @@ async function extractLayoutText(file: File): Promise<string> {
     pages.push(pageLines.join('\n'));
   }
 
+  reportPdfStage('PDF 5/5 · Texte extrait · Interprétation du relevé…');
   return pages.join('\n');
 }
 
