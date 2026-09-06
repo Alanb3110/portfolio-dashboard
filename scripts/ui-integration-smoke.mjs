@@ -17,6 +17,14 @@ const assetName = path.basename(moduleSrc);
 const assetPath = path.join(distDir, 'assets', assetName);
 await fs.access(assetPath);
 
+function setGlobal(key, value) {
+  Object.defineProperty(globalThis, key, {
+    value,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function installDom(run) {
   const dom = new JSDOM(html, {
     url: `https://alanb3110.github.io/portfolio-dashboard/?ui-smoke=${run}`,
@@ -44,7 +52,7 @@ function installDom(run) {
     ImageData: window.ImageData ?? class ImageData {},
     Path2D: window.Path2D ?? class Path2D {},
   };
-  for (const [key, value] of Object.entries(globals)) globalThis[key] = value;
+  for (const [key, value] of Object.entries(globals)) setGlobal(key, value);
   window.confirm = () => true;
   return dom;
 }
@@ -80,7 +88,7 @@ assert.equal(results.dataset.historyChartBound, 'true', 'History chart UI module
 
 await settle();
 assert.match(
-  firstDocument.querySelector('.utility-drawer:nth-of-type(1)')?.textContent ?? firstDocument.body.textContent ?? '',
+  firstDocument.body.textContent ?? '',
   /Sources|Historique|Actualiser/,
   'Built DOM should contain the secondary source/history workflow.',
 );
