@@ -24,6 +24,7 @@ jobs:
       - name: Typecheck, test and build
         run: npm run check
       - name: Built UI and depth validation smoke
+        timeout-minutes: 2
         run: |
           npm install --no-save --package-lock=false --ignore-scripts --legacy-peer-deps jsdom@30.0.1 fake-indexeddb@6.2.5
           node scripts/ui-integration-smoke.mjs
