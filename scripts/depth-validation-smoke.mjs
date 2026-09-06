@@ -115,7 +115,9 @@ async function importHistorySource() {
   }
 }
 
+console.log('DEPTH_STAGE 1/7: compiling production history module');
 const history = await importHistorySource();
+console.log('DEPTH_STAGE 2/7: production history module imported');
 
 // J — isolated IndexedDB lifecycle using the production history module.
 await history.eraseHistorySnapshots();
@@ -165,6 +167,7 @@ for (const record of loaded) {
   }
 }
 await history.eraseHistorySnapshots();
+console.log('DEPTH_STAGE 3/7: isolated IndexedDB lifecycle passed');
 
 // K — seed a 100-snapshot isolated history through production import logic.
 const volumeSnapshots = Array.from({ length: 100 }, (_, index) => syntheticSnapshot(index));
@@ -174,6 +177,7 @@ loaded = await history.loadHistorySnapshots();
 assert.equal(loaded.length, 100, '100 snapshots must reload from IndexedDB.');
 assert.equal(loaded[0].snapshotDate, volumeSnapshots[0].snapshotDate);
 assert.equal(loaded.at(-1).snapshotDate, volumeSnapshots.at(-1).snapshotDate);
+console.log('DEPTH_STAGE 4/7: 100 snapshots seeded and reloaded');
 
 let indexedDbOpenCount = 0;
 const nativeOpen = indexedDB.open.bind(indexedDB);
@@ -243,7 +247,9 @@ async function settle(ms = 150) {
 }
 
 const dom = installDom();
+console.log('DEPTH_STAGE 5/7: importing built PWA with 100 saved snapshots');
 await import(`${pathToFileURL(assetPath).href}?depth-validation=${Date.now()}`);
+console.log('DEPTH_STAGE 6/7: built PWA imported; waiting for UI stabilization');
 await settle(300);
 await settle(300);
 
@@ -296,6 +302,7 @@ assert.equal(
   'one analysis render must launch at most one World/S&P benchmark panel pipeline.',
 );
 
+console.log(`DEPTH_STAGE 7/7: stable built UI; nodes=${nodeCount}; observers=${mutationObserverCount}; callbacks=${mutationCallbackCount}; indexedDB opens=${indexedDbOpenCount}`);
 dom.window.close();
 await history.eraseHistorySnapshots();
 console.log(`Depth validation smoke passed: IndexedDB lifecycle, 100-snapshot history, selectable sparse chart, bounded DOM (${nodeCount} nodes), idle stability and single-pass orchestration.`);
