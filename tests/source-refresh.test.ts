@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   selectLatestTradeRepublicSources,
   selectLatestTradeRepublicSourcesByContent,
+  selectSingleTradeRepublicSources,
   sourcePairFingerprint,
 } from '../src/source-refresh';
 
@@ -27,6 +28,31 @@ describe('folder source refresh', () => {
 
     expect(pair.pdf.name).toBe('Net Worth (2).pdf');
     expect(pair.csv.name).toBe('Transaction export (5).csv');
+  });
+
+  it('accepts exactly one matching PDF and CSV for the iPhone folder workflow', () => {
+    const pair = selectSingleTradeRepublicSources([
+      fakeFile('Net Worth.pdf', 100, 'pdf'),
+      fakeFile('Transaction export.csv', 100, 'csv'),
+      fakeFile('notes.txt', 500, 'ignore-me'),
+    ]);
+
+    expect(pair.pdf.name).toBe('Net Worth.pdf');
+    expect(pair.csv.name).toBe('Transaction export.csv');
+  });
+
+  it('rejects ambiguous folder contents instead of comparing several exports', () => {
+    expect(() => selectSingleTradeRepublicSources([
+      fakeFile('Net Worth.pdf', 100, 'pdf-1'),
+      fakeFile('Net Worth (2).pdf', 200, 'pdf-2'),
+      fakeFile('Transaction export.csv', 100, 'csv'),
+    ])).toThrow(/Plusieurs exports Trade Republic détectés/);
+
+    expect(() => selectSingleTradeRepublicSources([
+      fakeFile('Net Worth.pdf', 100, 'pdf'),
+      fakeFile('Transaction export.csv', 100, 'csv-1'),
+      fakeFile('Transaction export (2).csv', 200, 'csv-2'),
+    ])).toThrow(/import manuel/);
   });
 
   it('prefers the newest PDF snapshot date over a later filesystem timestamp', async () => {
