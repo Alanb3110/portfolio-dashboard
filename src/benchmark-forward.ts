@@ -43,6 +43,12 @@ function shiftUtcDays(date: string, days: number): string {
   return instant.toISOString().slice(0, 10);
 }
 
+function isWeekendDate(date: string): boolean {
+  if (!isIsoDate(date)) return false;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday === 0 || weekday === 6;
+}
+
 function naXirr(note: string): XirrDiagnostics {
   return { status: 'N/A', roots: [], selectedRoot: null, residual: null, note };
 }
@@ -153,9 +159,15 @@ function resolveFlowPrices(
       continue;
     }
 
-    // Causal session rule: a flow that occurs while Xetra has no close is executed at the
-    // first available close after the flow date, never at a prior close. The execution close
-    // must already exist by the terminal snapshot, otherwise the comparison remains N/A.
+    // A missing weekday close is treated conservatively as a provider/data gap because
+    // this local replay layer has no authoritative Xetra holiday calendar. Only weekend
+    // flows may use the causal next available close. Weekday holidays therefore remain
+    // N/A rather than risking silent substitution of a genuinely missing session close.
+    if (!isWeekendDate(flow.date)) {
+      missingFlowDates.push(flow.date);
+      continue;
+    }
+
     const nextPriceDate = priceDates.find((date) => date > flow.date && date <= snapshotDate) ?? null;
     if (!nextPriceDate) {
       missingFlowDates.push(flow.date);
