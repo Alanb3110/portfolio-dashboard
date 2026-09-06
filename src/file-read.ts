@@ -2,12 +2,22 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 export function readTextFile(file: File, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
   if (typeof FileReader === 'undefined') {
-    return Promise.race([
-      file.text(),
-      new Promise<string>((_, reject) => {
-        setTimeout(() => reject(new Error(`Délai dépassé pendant la lecture de ${file.name}.`)), timeoutMs);
-      }),
-    ]);
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Délai dépassé pendant la lecture de ${file.name}.`)),
+        timeoutMs,
+      );
+      file.text().then(
+        (text) => {
+          clearTimeout(timer);
+          resolve(text);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -26,12 +36,12 @@ export function readTextFile(file: File, timeoutMs = DEFAULT_TIMEOUT_MS): Promis
 
     const timer = setTimeout(() => {
       if (settled) return;
+      finish(() => reject(new Error(`Délai dépassé pendant la lecture de ${file.name}.`)));
       try {
         reader.abort();
       } catch {
         // Best-effort abort only; the timeout error remains authoritative.
       }
-      finish(() => reject(new Error(`Délai dépassé pendant la lecture de ${file.name}.`)));
     }, timeoutMs);
 
     reader.onload = () => {
