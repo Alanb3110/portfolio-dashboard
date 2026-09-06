@@ -1,7 +1,7 @@
 {
   "name": "portfolio-dashboard",
   "private": true,
-  "version": "5.0.0-alpha.1",
+  "version": "5.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
