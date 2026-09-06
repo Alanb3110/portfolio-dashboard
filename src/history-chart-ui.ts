@@ -1,6 +1,7 @@
 import { backfillBenchmarkObservations } from './history-benchmark-observations';
 import { buildHistoryChartSeries, type HistoryChartPoint } from './history-chart';
-import { loadHistorySnapshots } from './history';
+import { loadHistorySnapshots, type HistorySnapshot } from './history';
+import { computeStoredPeriodPerformance } from './period-performance';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -20,12 +21,32 @@ function formatEur(value: number | null): string {
   }).format(value);
 }
 
+function formatSignedEur(value: number | null): string {
+  if (value == null) return 'N/A';
+  if (Math.abs(value) < 0.005) return formatEur(0);
+  return `${value > 0 ? '+' : '−'}${new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 2,
+  }).format(Math.abs(value))}`;
+}
+
 function dateMs(date: string): number {
   return Date.parse(`${date}T00:00:00Z`);
 }
 
 function svgNode<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] {
   return document.createElementNS(SVG_NS, tag);
+}
+
+function metric(label: string, value: string, subtext: string): HTMLElement {
+  const card = element('section', 'metric-card metric-card--secondary');
+  card.append(
+    element('p', 'metric-label', label),
+    element('strong', 'metric-value', value),
+    element('p', 'metric-subtext', subtext),
+  );
+  return card;
 }
 
 function seriesPath(
@@ -162,6 +183,37 @@ function renderLegend(latest: HistoryChartPoint): HTMLElement {
   return legend;
 }
 
+function renderLastStoredPeriod(snapshots: HistorySnapshot[]): HTMLElement | null {
+  if (snapshots.length < 2) return null;
+  const ordered = [...snapshots].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  const previous = ordered.at(-2)!;
+  const current = ordered.at(-1)!;
+  const period = computeStoredPeriodPerformance(previous, current);
+
+  const section = element('div', 'history-period-summary');
+  section.append(element('h3', 'subheading', `Dernière période enregistrée · ${period.startDate} → ${period.endDate}`));
+  if (period.status !== 'PASS') {
+    section.append(element('p', 'status', `Performance de période indisponible : ${period.note}`));
+    return section;
+  }
+
+  const grid = element('div', 'metrics');
+  grid.append(
+    metric('P&L de période', formatSignedEur(period.economicPnl), 'Variation de valeur corrigée des flux canoniques'),
+    metric('Flux nets investis', formatSignedEur(period.netContributionEur), 'Positif = argent net ajouté aux positions principales'),
+    metric('Variation brute', formatSignedEur(period.rawValueDelta), 'Inclut performance + apports/retraits'),
+  );
+  section.append(
+    grid,
+    element(
+      'p',
+      'muted-block',
+      `Calcul sur ${period.days} jour(s), à partir de deux snapshots réels compatibles. Aucune NAV quotidienne n’est reconstruite.`,
+    ),
+  );
+  return section;
+}
+
 function findBenchmarkPanel(results: HTMLElement): HTMLElement | null {
   return [...results.children].find((child): child is HTMLElement => {
     if (!(child instanceof HTMLElement)) return false;
@@ -178,9 +230,12 @@ async function renderHistoryPanel(panel: HTMLElement): Promise<void> {
     element(
       'p',
       'muted-block',
-      'Courbe sparse : uniquement les snapshots réellement enregistrés. Les benchmarks sont les valeurs synthétiques matched-flow, sans interpolation quotidienne.',
+      'Historique sparse : uniquement les snapshots réellement enregistrés. Les benchmarks sont les valeurs synthétiques matched-flow, sans interpolation quotidienne.',
     ),
   );
+
+  const periodSummary = renderLastStoredPeriod(snapshots);
+  if (periodSummary) panel.append(periodSummary);
 
   if (points.length < 2) {
     panel.append(element('p', 'status', 'Un second snapshot enregistré est nécessaire pour tracer une évolution.'));
