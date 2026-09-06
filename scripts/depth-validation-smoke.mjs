@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { webcrypto } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 import 'fake-indexeddb/auto';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 const root = process.cwd();
 const distDir = path.join(root, 'dist');
