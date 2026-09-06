@@ -104,14 +104,24 @@ h2 { margin-bottom: 16px; font-size: 1.08rem; }
 .quality-panel h2 { color: #aab8cc; font-size: .96rem; }
 
 .history-chart-panel { border-color: rgba(181, 204, 240, .18); overflow: hidden; }
-.history-chart-svg { display: block; width: 100%; height: auto; margin: 4px 0 10px; overflow: visible; }
+.history-chart-svg { display: block; width: 100%; height: auto; margin: 4px 0 8px; overflow: visible; touch-action: manipulation; }
 .history-chart-gridline { stroke: rgba(181, 204, 240, .12); stroke-width: 1; }
 .history-chart-axis-label { fill: #7f90aa; font-size: 12px; font-family: inherit; }
 .history-series { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.history-point { stroke-width: 2; }
+.history-point { stroke-width: 2; pointer-events: none; }
 .history-series-portfolio { stroke: #dce8ff; fill: #dce8ff; }
 .history-series-world { stroke: #8fd8ae; fill: #8fd8ae; }
 .history-series-sp500 { stroke: #f0c782; fill: #f0c782; }
+.history-hit-target { fill: rgba(255,255,255,0); stroke: rgba(220,232,255,0); stroke-width: 2; cursor: pointer; outline: none; }
+.history-hit-target:focus { stroke: rgba(220,232,255,.55); }
+.history-touch-hint { margin: 0 0 8px; color: #7f90aa; font-size: .72rem; text-align: center; }
+.history-touch-detail { display: grid; gap: 9px; margin: 4px 0 10px; padding: 11px 12px; border: 1px solid rgba(181,204,240,.1); border-radius: 14px; background: rgba(5,14,28,.34); }
+.history-touch-detail-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.history-touch-detail-heading strong { font-size: .82rem; font-variant-numeric: tabular-nums; }
+.history-touch-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.history-touch-detail-item { display: grid; gap: 3px; min-width: 0; }
+.history-touch-detail-item span { color: #8192aa; font-size: .66rem; }
+.history-touch-detail-item strong { color: #e7eefb; font-size: .82rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .history-chart-legend { display: grid; gap: 7px; margin-top: 4px; }
 .history-chart-legend-item { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; align-items: center; gap: 8px; color: #aab8cc; font-size: .78rem; }
 .history-chart-legend-item strong { color: #e7eefb; font-variant-numeric: tabular-nums; }
