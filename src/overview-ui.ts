@@ -66,13 +66,11 @@ function enhanceOverview(): boolean {
   if (!shell) return false;
   if (shell.dataset.overviewEnhanced === 'true') return true;
 
-  const directChildren = Array.from(shell.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
-  const hero = directChildren.find((node) => node.classList.contains('hero'));
-  const privacy = directChildren.find((node) => node.classList.contains('privacy'));
-  const results = directChildren.find((node) => node.classList.contains('results'));
-  const panels = directChildren.filter((node) => node.classList.contains('panel'));
-  const importPanel = panels[0];
-  const historyPanel = panels[1];
+  const hero = shell.querySelector<HTMLElement>(':scope > .hero');
+  const privacy = shell.querySelector<HTMLElement>(':scope > .privacy');
+  const results = shell.querySelector<HTMLElement>(':scope > .results');
+  const importPanel = shell.querySelector<HTMLInputElement>('input[webkitdirectory]')?.closest<HTMLElement>('.panel') ?? null;
+  const historyPanel = shell.querySelector<HTMLElement>('.history-list')?.closest<HTMLElement>('.panel') ?? null;
 
   if (!hero || !privacy || !results || !importPanel || !historyPanel) return false;
 
@@ -125,10 +123,4 @@ function enhanceOverview(): boolean {
   return true;
 }
 
-if (!enhanceOverview()) {
-  const startupObserver = new MutationObserver(() => {
-    if (!enhanceOverview()) return;
-    startupObserver.disconnect();
-  });
-  startupObserver.observe(document.documentElement, { childList: true, subtree: true });
-}
+if (!enhanceOverview()) throw new Error('Overview bootstrap could not find the deterministic main application shell.');
