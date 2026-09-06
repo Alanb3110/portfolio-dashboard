@@ -480,12 +480,6 @@ function setupRebalancingUi(): boolean {
     schedule();
   });
 
-  const observer = new MutationObserver((records) => {
-    const panel = results.querySelector<HTMLElement>('#rebalancing-panel');
-    const externalMutation = records.some((record) => !panel || !panel.contains(record.target));
-    if (externalMutation) schedule();
-  });
-  observer.observe(results, { childList: true, subtree: true });
   schedule();
   return true;
 }
