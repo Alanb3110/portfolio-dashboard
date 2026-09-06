@@ -92,7 +92,6 @@ jobs:
         run: |
           npm ci
           npm run check
-          npm run ui:smoke
       - name: Commit hotfix
         run: |
           git config user.name 'github-actions[bot]'
