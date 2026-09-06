@@ -77,8 +77,9 @@ assert.ok(firstDocument.querySelector('.dashboard-shell'), 'Overview enhancer mu
 assert.ok(firstDocument.querySelector('.quick-actions'), 'Primary iPhone quick actions must be present.');
 assert.equal(firstDocument.querySelectorAll('.utility-drawer').length, 2, 'Import/history secondary controls must be moved into two drawers.');
 assert.equal(firstDocument.querySelector('.hero h1')?.textContent, 'Portefeuille');
-assert.equal(firstDocument.querySelector('.quick-refresh-button')?.textContent, 'Actualiser depuis le dossier');
-assert.equal(firstDocument.querySelector('.quick-save-button')?.textContent, 'Enregistrer');
+assert.equal(firstDocument.querySelector('.quick-refresh-button')?.textContent, 'Actualiser et enregistrer');
+assert.equal(firstDocument.querySelector('.quick-save-button'), null, 'Manual snapshot save must remain a secondary history action.');
+assert.match(firstDocument.body.textContent ?? '', /Enregistrer le snapshot courant/, 'Manual snapshot save must remain available in the history drawer.');
 
 const results = firstDocument.querySelector('.results');
 assert.ok(results, 'Results container must exist.');
