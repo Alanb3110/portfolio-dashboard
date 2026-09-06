@@ -1,0 +1,34 @@
+name: Hotfix v5.2 iOS bootstrap rollback
+
+on:
+  push:
+    branches: [hotfix/v5.2-ios-bootstrap-rollback]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/v5.2-ios-bootstrap-rollback
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply rollback
+        run: python scripts/rollback_v52_ios_bootstrap.py
+      - name: Validate
+        run: |
+          npm ci
+          npm run check
+      - name: Commit rollback and remove temporary helpers
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git rm -f .github/workflows/hotfix-v52-ios-bootstrap-rollback.yml scripts/rollback_v52_ios_bootstrap.py
+          git commit -m 'Restore v5.1 iOS bootstrap and shared analysis path'
+          git push origin HEAD:hotfix/v5.2-ios-bootstrap-rollback
