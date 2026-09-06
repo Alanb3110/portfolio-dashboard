@@ -15,8 +15,9 @@ import {
 } from './history';
 import { attachHistoryProvenance } from './history-provenance';
 import { parseNetWorthPdf } from './net-worth';
-import { selectLatestTradeRepublicSources } from './source-refresh';
+import { selectSingleTradeRepublicSources } from './source-refresh';
 import { publishUiSnapshot } from './snapshot-bridge';
+import { readTextFile } from './file-read';
 import { auditLedger, normalizeLedger, parseTransactions } from './trade-republic';
 import type { CashFlow, LedgerAudit, NetWorthSnapshot, PortfolioAnalysis } from './domain';
 
@@ -148,7 +149,7 @@ importSection.append(
   element(
     'p',
     'muted-block',
-    'Sur iPhone, « Actualiser et enregistrer » sélectionne les exports Trade Republic les plus récents du dossier, les lit une seule fois puis enregistre le snapshot dérivé. Les PDF/CSV eux-mêmes ne sont jamais persistés.',
+    'Sur iPhone, le dossier doit contenir un seul Net Worth PDF et un seul Transaction export CSV. « Actualiser et enregistrer » les lit une seule fois puis enregistre le snapshot dérivé. En cas de doublon, utilise la sélection manuelle.',
   ),
 );
 
@@ -417,7 +418,7 @@ async function runAnalysis(
   results.hidden = true;
 
   try {
-    const csvText = preReadCsvText ?? await csvFile.text();
+    const csvText = preReadCsvText ?? await readTextFile(csvFile, SOURCE_READ_TIMEOUT_MS);
     const transactions = parseTransactions(csvText);
     const ledger = normalizeLedger(transactions);
     const audit = auditLedger(ledger);
@@ -461,7 +462,7 @@ folderInput.addEventListener('change', async () => {
 
   try {
     setAnalysisBusy(true);
-    const pair = selectLatestTradeRepublicSources(files);
+    const pair = selectSingleTradeRepublicSources(files);
 
     status.textContent = `Lecture du relevé ${pair.pdf.name}…`;
     const snapshot = await withSourceTimeout(parseNetWorthPdf(pair.pdf), `la lecture de ${pair.pdf.name}`);
@@ -476,7 +477,7 @@ folderInput.addEventListener('change', async () => {
     }
 
     status.textContent = `Lecture des transactions ${pair.csv.name}…`;
-    const csvText = await withSourceTimeout(pair.csv.text(), `la lecture de ${pair.csv.name}`);
+    const csvText = await readTextFile(pair.csv, SOURCE_READ_TIMEOUT_MS);
 
     status.textContent = `Sources retenues : ${pair.pdf.name} (${snapshot.snapshotDate}) + ${pair.csv.name}.`;
     const analyzed = await runAnalysis(pair.csv, pair.pdf, snapshot, csvText);
