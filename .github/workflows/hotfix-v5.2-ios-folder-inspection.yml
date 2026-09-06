@@ -28,13 +28,41 @@ jobs:
             let source = fs.readFileSync(path, 'utf8');
             const marker = `const ISO_DATE = /^\\d{4}-\\d{2}-\\d{2}$/;`;
             if (!source.includes(marker)) throw new Error('source-refresh marker missing');
-            source = source.replace(marker, `${marker}\nconst MAX_SEMANTIC_CANDIDATES = 3;`);
-            const beforePdfs = `  const { csvFiles, pdfFiles } = matchingSources(files);\n  const warnings: string[] = [];\n\n  const inspectedPdfs: Array<{ file: File; snapshotDate: string }> = [];\n  for (const file of pdfFiles) {`;
-            const afterPdfs = `  const { csvFiles, pdfFiles } = matchingSources(files);\n  const warnings: string[] = [];\n  const pdfCandidates = [...pdfFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);\n  const csvCandidates = [...csvFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);\n  if (pdfFiles.length > pdfCandidates.length) {\n    warnings.push(\`Inspection PDF limitée aux \\${pdfCandidates.length} exports les plus récents sur \\${pdfFiles.length}.\`);\n  }\n  if (csvFiles.length > csvCandidates.length) {\n    warnings.push(\`Inspection CSV limitée aux \\${csvCandidates.length} exports les plus récents sur \\${csvFiles.length}.\`);\n  }\n\n  const inspectedPdfs: Array<{ file: File; snapshotDate: string }> = [];\n  for (const file of pdfCandidates) {`;
+            source = source.replace(marker, marker + '\nconst MAX_SEMANTIC_CANDIDATES = 3;');
+
+            const beforePdfs = [
+              '  const { csvFiles, pdfFiles } = matchingSources(files);',
+              '  const warnings: string[] = [];',
+              '',
+              '  const inspectedPdfs: Array<{ file: File; snapshotDate: string }> = [];',
+              '  for (const file of pdfFiles) {',
+            ].join('\n');
+            const afterPdfs = [
+              '  const { csvFiles, pdfFiles } = matchingSources(files);',
+              '  const warnings: string[] = [];',
+              '  const pdfCandidates = [...pdfFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);',
+              '  const csvCandidates = [...csvFiles].sort(compareFileMetadata).slice(0, MAX_SEMANTIC_CANDIDATES);',
+              '  if (pdfFiles.length > pdfCandidates.length) {',
+              "    warnings.push('Inspection PDF limitée aux ' + pdfCandidates.length + ' exports les plus récents sur ' + pdfFiles.length + '.');",
+              '  }',
+              '  if (csvFiles.length > csvCandidates.length) {',
+              "    warnings.push('Inspection CSV limitée aux ' + csvCandidates.length + ' exports les plus récents sur ' + csvFiles.length + '.');",
+              '  }',
+              '',
+              '  const inspectedPdfs: Array<{ file: File; snapshotDate: string }> = [];',
+              '  for (const file of pdfCandidates) {',
+            ].join('\n');
             if (!source.includes(beforePdfs)) throw new Error('PDF selection marker missing');
             source = source.replace(beforePdfs, afterPdfs);
-            const beforeCsvs = `  const inspectedCsvs: Array<{ file: File; coverage: CsvSemanticCoverage }> = [];\n  for (const file of csvFiles) {`;
-            const afterCsvs = `  const inspectedCsvs: Array<{ file: File; coverage: CsvSemanticCoverage }> = [];\n  for (const file of csvCandidates) {`;
+
+            const beforeCsvs = [
+              '  const inspectedCsvs: Array<{ file: File; coverage: CsvSemanticCoverage }> = [];',
+              '  for (const file of csvFiles) {',
+            ].join('\n');
+            const afterCsvs = [
+              '  const inspectedCsvs: Array<{ file: File; coverage: CsvSemanticCoverage }> = [];',
+              '  for (const file of csvCandidates) {',
+            ].join('\n');
             if (!source.includes(beforeCsvs)) throw new Error('CSV selection marker missing');
             source = source.replace(beforeCsvs, afterCsvs);
             fs.writeFileSync(path, source);
@@ -43,15 +71,49 @@ jobs:
           {
             const path = 'src/main.ts';
             let source = fs.readFileSync(path, 'utf8');
-            const insertionPoint = `function parsedSourceFingerprint(csvText: string, snapshot: NetWorthSnapshot): string {`;
+            const insertionPoint = 'function parsedSourceFingerprint(csvText: string, snapshot: NetWorthSnapshot): string {';
             if (!source.includes(insertionPoint)) throw new Error('main insertion marker missing');
-            source = source.replace(insertionPoint, `const SOURCE_READ_TIMEOUT_MS = 15_000;\n\nasync function withSourceTimeout<T>(operation: Promise<T>, label: string): Promise<T> {\n  let timer: ReturnType<typeof setTimeout> | undefined;\n  try {\n    return await Promise.race([\n      operation,\n      new Promise<T>((_, reject) => {\n        timer = setTimeout(() => reject(new Error(\`Délai dépassé pendant \\${label}. Réessaie ou retire l’export concerné du dossier.\`)), SOURCE_READ_TIMEOUT_MS);\n      }),\n    ]);\n  } finally {\n    if (timer) clearTimeout(timer);\n  }\n}\n\n${insertionPoint}`);
-            const pdfBefore = `      pdfSnapshotDate: async (file) => {\n        const snapshot = await parseNetWorthPdf(file);`;
-            const pdfAfter = `      pdfSnapshotDate: async (file) => {\n        status.textContent = \`Inspection du relevé \\${file.name}…\`;\n        const snapshot = await withSourceTimeout(parseNetWorthPdf(file), \`la lecture de \\${file.name}\`);`;
+            const timeoutHelper = [
+              'const SOURCE_READ_TIMEOUT_MS = 15_000;',
+              '',
+              'async function withSourceTimeout<T>(operation: Promise<T>, label: string): Promise<T> {',
+              '  let timer: ReturnType<typeof setTimeout> | undefined;',
+              '  try {',
+              '    return await Promise.race([',
+              '      operation,',
+              '      new Promise<T>((_, reject) => {',
+              "        timer = setTimeout(() => reject(new Error('Délai dépassé pendant ' + label + '. Réessaie ou retire l’export concerné du dossier.')), SOURCE_READ_TIMEOUT_MS);",
+              '      }),',
+              '    ]);',
+              '  } finally {',
+              '    if (timer) clearTimeout(timer);',
+              '  }',
+              '}',
+              '',
+            ].join('\n');
+            source = source.replace(insertionPoint, timeoutHelper + insertionPoint);
+
+            const pdfBefore = [
+              '      pdfSnapshotDate: async (file) => {',
+              '        const snapshot = await parseNetWorthPdf(file);',
+            ].join('\n');
+            const pdfAfter = [
+              '      pdfSnapshotDate: async (file) => {',
+              "        status.textContent = 'Inspection du relevé ' + file.name + '…';",
+              "        const snapshot = await withSourceTimeout(parseNetWorthPdf(file), 'la lecture de ' + file.name);",
+            ].join('\n');
             if (!source.includes(pdfBefore)) throw new Error('main PDF marker missing');
             source = source.replace(pdfBefore, pdfAfter);
-            const csvBefore = `      csvCoverage: async (file) => {\n        const csvText = await file.text();`;
-            const csvAfter = `      csvCoverage: async (file) => {\n        status.textContent = \`Inspection des transactions \\${file.name}…\`;\n        const csvText = await withSourceTimeout(file.text(), \`la lecture de \\${file.name}\`);`;
+
+            const csvBefore = [
+              '      csvCoverage: async (file) => {',
+              '        const csvText = await file.text();',
+            ].join('\n');
+            const csvAfter = [
+              '      csvCoverage: async (file) => {',
+              "        status.textContent = 'Inspection des transactions ' + file.name + '…';",
+              "        const csvText = await withSourceTimeout(file.text(), 'la lecture de ' + file.name);",
+            ].join('\n');
             if (!source.includes(csvBefore)) throw new Error('main CSV marker missing');
             source = source.replace(csvBefore, csvAfter);
             fs.writeFileSync(path, source);
