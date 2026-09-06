@@ -117,7 +117,7 @@ privacy.append(
   element(
     'span',
     undefined,
-    ' Les PDF/CSV restent en mémoire. Seuls des snapshots dérivés sont conservés sur cet appareil si tu choisis explicitement de les enregistrer. Les appels marché ne contiennent que les identifiants publics World/S&P 500 et une plage de dates.',
+    ' Les PDF/CSV restent en mémoire. « Actualiser et enregistrer » conserve uniquement un snapshot dérivé dans cet appareil. Les appels marché ne contiennent que les identifiants publics World/S&P 500 et une plage de dates.',
   ),
 );
 
@@ -127,11 +127,11 @@ importSection.append(
   element(
     'p',
     'muted-block',
-    'Sur iPhone, « Actualiser depuis le dossier » inspecte les exports Trade Republic du dossier et privilégie la date réelle du relevé PDF et la couverture du CSV plutôt que le seul horodatage du fichier.',
+    'Sur iPhone, « Actualiser et enregistrer » inspecte les exports Trade Republic du dossier, analyse le meilleur couple de sources puis enregistre le snapshot dérivé. Les PDF/CSV eux-mêmes ne sont jamais persistés.',
   ),
 );
 
-const folderRefreshButton = element('button', 'primary-button', 'Actualiser depuis le dossier') as HTMLButtonElement;
+const folderRefreshButton = element('button', 'primary-button', 'Actualiser et enregistrer') as HTMLButtonElement;
 folderRefreshButton.type = 'button';
 const folderInput = document.createElement('input');
 folderInput.type = 'file';
@@ -157,9 +157,9 @@ pdfInput.accept = '.pdf,application/pdf';
 pdfLabel.append(pdfInput);
 
 formGrid.append(csvLabel, pdfLabel);
-const analyzeButton = element('button', 'secondary-button', 'Analyser les fichiers sélectionnés') as HTMLButtonElement;
+const analyzeButton = element('button', 'secondary-button', 'Analyser sans enregistrer') as HTMLButtonElement;
 analyzeButton.type = 'button';
-const status = element('p', 'status', 'Actualise depuis le dossier ou sélectionne les deux fichiers manuellement.');
+const status = element('p', 'status', 'Actualise et enregistre depuis le dossier, ou analyse deux fichiers manuellement sans les persister.');
 importSection.append(folderRefreshButton, folderInput, manualHeading, formGrid, analyzeButton, status);
 
 const historySection = element('section', 'panel');
@@ -172,7 +172,7 @@ historySection.append(
   ),
 );
 const historyActions = element('div', 'action-grid');
-const saveSnapshotButton = element('button', 'secondary-button', 'Enregistrer le snapshot') as HTMLButtonElement;
+const saveSnapshotButton = element('button', 'secondary-button', 'Enregistrer le snapshot courant') as HTMLButtonElement;
 saveSnapshotButton.type = 'button';
 saveSnapshotButton.disabled = true;
 const exportBackupButton = element('button', 'secondary-button', 'Exporter la sauvegarde') as HTMLButtonElement;
@@ -366,7 +366,26 @@ function rerenderCurrentAnalysis(): void {
   renderAnalysis(currentAnalysis, currentSnapshot, currentAudit, currentMainFlows);
 }
 
-async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): Promise<void> {
+async function persistCurrentSnapshot(): Promise<boolean> {
+  if (!currentAnalysis || !currentSnapshot || !historyAvailable) return false;
+  try {
+    const historyRecord = attachHistoryProvenance(
+      createHistorySnapshot(currentAnalysis, currentSnapshot),
+      currentSourceFingerprint,
+      currentAudit,
+    );
+    await saveHistorySnapshot(historyRecord);
+    await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
+    rerenderCurrentAnalysis();
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    historyStatus.textContent = `Échec de l’enregistrement : ${message}`;
+    return false;
+  }
+}
+
+async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): Promise<boolean> {
   setAnalysisBusy(true);
   status.textContent = `Analyse locale en cours… ${csvFile.name} + ${pdfFile.name}`;
   results.hidden = true;
@@ -388,6 +407,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     renderAnalysis(analysis, snapshot, audit, flows);
     if (fingerprint) writeLastSourceFingerprint(fingerprint);
     status.textContent = `Analyse terminée avec ${csvFile.name} + ${pdfFile.name}. Les fichiers bruts n’ont pas quitté cet appareil.`;
+    return true;
   } catch (error) {
     currentAnalysis = null;
     currentSnapshot = null;
@@ -397,6 +417,7 @@ async function runAnalysis(csvFile: File, pdfFile: File, fingerprint?: string): 
     setHistoryControls();
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Échec de l’analyse : ${message}`;
+    return false;
   } finally {
     setAnalysisBusy(false);
   }
@@ -437,16 +458,25 @@ folderInput.addEventListener('change', async () => {
     status.textContent = `Sources retenues : ${pair.pdf.name} (${pair.pdfSnapshotDate}) + ${pair.csv.name}${pair.csvLastDate ? ` (transactions jusqu’au ${pair.csvLastDate})` : ''}.`;
     const fingerprint = await sourcePairFingerprint(pair);
     const unchanged = readLastSourceFingerprint() === fingerprint;
+    const alreadySaved = historySnapshots.some(
+      (snapshot) => snapshot.snapshotDate === pair.pdfSnapshotDate && snapshot.sourceFingerprint === fingerprint,
+    );
 
-    if (unchanged && currentAnalysis != null) {
-      status.textContent = `Aucun nouvel export détecté : ${pair.csv.name} + ${pair.pdf.name} sont identiques à la dernière analyse.`;
+    if (unchanged && currentAnalysis != null && alreadySaved) {
+      status.textContent = `Aucun nouvel export détecté : le snapshot ${pair.pdfSnapshotDate} est déjà analysé et enregistré.`;
       return;
     }
 
-    await runAnalysis(pair.csv, pair.pdf, fingerprint);
-    if (pair.warnings.length > 0 && currentAnalysis != null) {
-      status.textContent += ` ${pair.warnings.length} export(s) correspondant(s) mais illisible(s) ont été ignoré(s).`;
-    }
+    const analyzed = await runAnalysis(pair.csv, pair.pdf, fingerprint);
+    if (!analyzed) return;
+
+    const saved = await persistCurrentSnapshot();
+    const warningNote = pair.warnings.length > 0
+      ? ` ${pair.warnings.length} export(s) correspondant(s) mais illisible(s) ont été ignoré(s).`
+      : '';
+    status.textContent = saved
+      ? `Actualisation terminée : snapshot ${pair.pdfSnapshotDate} analysé et enregistré localement.${warningNote}`
+      : `Analyse terminée, mais le snapshot ${pair.pdfSnapshotDate} n’a pas pu être enregistré localement.${warningNote}`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Actualisation impossible : ${message}`;
@@ -474,21 +504,8 @@ analyzeButton.addEventListener('click', async () => {
 });
 
 saveSnapshotButton.addEventListener('click', async () => {
-  if (!currentAnalysis || !currentSnapshot) return;
-  try {
-    const historyRecord = attachHistoryProvenance(
-      createHistorySnapshot(currentAnalysis, currentSnapshot),
-      currentSourceFingerprint,
-      currentAudit,
-    );
-    await saveHistorySnapshot(historyRecord);
-    await refreshHistory(`Snapshot ${currentAnalysis.snapshotDate} enregistré localement.`);
-    rerenderCurrentAnalysis();
-    status.textContent = 'Snapshot dérivé enregistré sur cet appareil. Les PDF/CSV restent non persistés.';
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    historyStatus.textContent = `Échec de l’enregistrement : ${message}`;
-  }
+  const saved = await persistCurrentSnapshot();
+  if (saved) status.textContent = 'Snapshot dérivé enregistré sur cet appareil. Les PDF/CSV restent non persistés.';
 });
 
 exportBackupButton.addEventListener('click', () => {
