@@ -25,49 +25,44 @@ interface PositionedText {
 
 async function extractLayoutText(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = getDocument({ data: bytes });
-  const document = await loadingTask.promise;
-  try {
-    const pages: string[] = [];
+  const document = await getDocument({ data: bytes }).promise;
+  const pages: string[] = [];
 
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const items: PositionedText[] = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const items: PositionedText[] = [];
 
-      for (const item of content.items) {
-        if (!('str' in item) || !('transform' in item)) continue;
-        const x = item.transform[4] ?? 0;
-        const y = item.transform[5] ?? 0;
-        items.push({ x, y, text: item.str });
-      }
-
-      const lines = new Map<number, PositionedText[]>();
-      for (const item of items) {
-        const y = Math.round(item.y * 2) / 2;
-        const line = lines.get(y) ?? [];
-        line.push(item);
-        lines.set(y, line);
-      }
-
-      const pageLines = [...lines.entries()]
-        .sort(([a], [b]) => b - a)
-        .map(([, line]) =>
-          line
-            .sort((a, b) => a.x - b.x)
-            .map((item) => item.text.trim())
-            .filter(Boolean)
-            .join(' '),
-        )
-        .filter(Boolean);
-
-      pages.push(pageLines.join('\n'));
+    for (const item of content.items) {
+      if (!('str' in item) || !('transform' in item)) continue;
+      const x = item.transform[4] ?? 0;
+      const y = item.transform[5] ?? 0;
+      items.push({ x, y, text: item.str });
     }
 
-    return pages.join('\n');
-  } finally {
-    await loadingTask.destroy();
+    const lines = new Map<number, PositionedText[]>();
+    for (const item of items) {
+      const y = Math.round(item.y * 2) / 2;
+      const line = lines.get(y) ?? [];
+      line.push(item);
+      lines.set(y, line);
+    }
+
+    const pageLines = [...lines.entries()]
+      .sort(([a], [b]) => b - a)
+      .map(([, line]) =>
+        line
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.text.trim())
+          .filter(Boolean)
+          .join(' '),
+      )
+      .filter(Boolean);
+
+    pages.push(pageLines.join('\n'));
   }
+
+  return pages.join('\n');
 }
 
 function extractSummaryBlock(text: string): string {
