@@ -84,6 +84,7 @@ async function importHistorySource() {
   await execFileAsync(process.execPath, [
     tscPath,
     path.join(root, 'src', 'history.ts'),
+    '--ignoreConfig',
     '--target', 'ES2022',
     '--module', 'ES2022',
     '--moduleResolution', 'Bundler',
