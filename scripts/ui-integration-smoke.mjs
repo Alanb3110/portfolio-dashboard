@@ -19,6 +19,8 @@ await fs.access(assetPath);
 const builtBundle = await fs.readFile(assetPath, 'utf8');
 assert.match(builtBundle, /Orienter le prochain apport/, 'Built production bundle must include the next-contribution planner.');
 assert.match(builtBundle, /buy-only/, 'Built production bundle must include explicit buy-only contribution guidance.');
+assert.match(builtBundle, /Top 1 ligne/, 'Built production bundle must label concentration explicitly at line level.');
+assert.match(builtBundle, /Touchez un point du portefeuille/, 'Built production bundle must include touch guidance for sparse history.');
 
 function setGlobal(key, value) {
   Object.defineProperty(globalThis, key, {
@@ -164,4 +166,4 @@ assert.match(secondDocument.body.textContent ?? '', /1 snapshot\(s\) enregistré
 
 firstDom.window.close();
 secondDom.window.close();
-console.log('Built UI integration smoke passed: shell composition, contribution planner shipping, module bindings and IndexedDB reload continuity.');
+console.log('Built UI integration smoke passed: shell composition, contribution planner, line-level concentration, touch-history shipping, module bindings and IndexedDB reload continuity.');
