@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import styles from '../src/styles.css?raw';
+import styles from '../src/styles.css?inline';
 import benchmarkUi from '../src/benchmark-ui.ts?raw';
 
 describe('history UI regressions', () => {
