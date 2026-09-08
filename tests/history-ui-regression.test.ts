@@ -1,6 +1,9 @@
+// @ts-expect-error The project intentionally omits @types/node; Vitest still runs on Node.
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import styles from '../src/styles.css?inline';
 import benchmarkUi from '../src/benchmark-ui.ts?raw';
+
+const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 describe('history UI regressions', () => {
   it('keeps SVG history series paths unfilled while retaining series colors for points', () => {
