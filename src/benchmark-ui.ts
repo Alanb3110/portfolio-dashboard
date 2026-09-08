@@ -230,22 +230,24 @@ export function renderForwardBenchmarkPanel(
       );
       output.replaceChildren(grid);
 
-      const persisted = await Promise.all([
-        persistCheckpoint(
+      // Checkpoint writes target the same History snapshot. Keep them sequential so the
+      // underlying read-modify-write persistence cannot lose one benchmark to a last-writer race.
+      const persisted = [
+        await persistCheckpoint(
           baseline.snapshotDate,
           analysis.snapshotDate,
           forwardBaseline,
           analysis.snapshotDate,
           worldReplay,
         ),
-        persistCheckpoint(
+        await persistCheckpoint(
           baseline.snapshotDate,
           analysis.snapshotDate,
           forwardBaseline,
           analysis.snapshotDate,
           sp500Replay,
         ),
-      ]);
+      ];
 
       const statuses = [world.status, sp500.status];
       const checkpointNote = persisted.every(Boolean) ? '' : ' · checkpoint local non enregistré';

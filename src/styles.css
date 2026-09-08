@@ -107,7 +107,7 @@ h2 { margin-bottom: 16px; font-size: 1.08rem; }
 .history-chart-svg { display: block; width: 100%; height: auto; margin: 4px 0 8px; overflow: visible; touch-action: manipulation; }
 .history-chart-gridline { stroke: rgba(181, 204, 240, .12); stroke-width: 1; }
 .history-chart-axis-label { fill: #7f90aa; font-size: 12px; font-family: inherit; }
-.history-series { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+path.history-series { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .history-point { stroke-width: 2; pointer-events: none; }
 .history-series-portfolio { stroke: #dce8ff; fill: #dce8ff; }
 .history-series-world { stroke: #8fd8ae; fill: #8fd8ae; }
