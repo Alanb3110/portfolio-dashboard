@@ -1,5 +1,5 @@
 import { backfillBenchmarkObservations } from './history-benchmark-observations';
-import { buildHistoryChartSeries, type HistoryChartPoint } from './history-chart';
+import { buildHistoryChartSeries, buildObservedSeriesPath, type HistoryChartPoint } from './history-chart';
 import { loadHistorySnapshots, type HistorySnapshot } from './history';
 import { computeStoredPeriodPerformance } from './period-performance';
 
@@ -47,26 +47,6 @@ function metric(label: string, value: string, subtext: string): HTMLElement {
     element('p', 'metric-subtext', subtext),
   );
   return card;
-}
-
-function seriesPath(
-  points: HistoryChartPoint[],
-  key: 'portfolio' | 'world' | 'sp500',
-  x: (date: string) => number,
-  y: (value: number) => number,
-): string {
-  let path = '';
-  let active = false;
-  for (const point of points) {
-    const value = point[key];
-    if (value == null) {
-      active = false;
-      continue;
-    }
-    path += `${active ? ' L' : ' M'} ${x(point.date).toFixed(2)} ${y(value).toFixed(2)}`;
-    active = true;
-  }
-  return path;
 }
 
 function historyPointAriaLabel(point: HistoryChartPoint): string {
@@ -151,7 +131,7 @@ function renderSvg(points: HistoryChartPoint[], onSelect: (point: HistoryChartPo
     ['world', 'history-series-world'],
     ['sp500', 'history-series-sp500'],
   ] as const) {
-    const pathData = seriesPath(points, key, x, y);
+    const pathData = buildObservedSeriesPath(points, key, x, y);
     if (!pathData) continue;
     const path = svgNode('path');
     path.setAttribute('d', pathData);
@@ -305,7 +285,11 @@ async function renderHistoryPanel(panel: HTMLElement): Promise<void> {
   const missingSp500 = points.slice(1).some((point) => point.sp500 == null);
   if (missingWorld || missingSp500) {
     const missing = [missingWorld ? 'MSCI World' : null, missingSp500 ? 'S&P 500' : null].filter(Boolean).join(' / ');
-    panel.append(element('p', 'status', `Historique benchmark partiel pour ${missing} : les points absents ne sont pas interpolés.`));
+    panel.append(element(
+      'p',
+      'status',
+      `Historique benchmark partiel pour ${missing} : seules les observations disponibles sont reliées ; aucune valeur manquante n’est reconstruite.`,
+    ));
   }
 }
 

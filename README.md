@@ -1,4 +1,4 @@
-# Portfolio Dashboard v5.2.2
+# Portfolio Dashboard v5.2.3
 
 Local-first portfolio analysis PWA for Trade Republic exports.
 
@@ -10,11 +10,11 @@ Local-first portfolio analysis PWA for Trade Republic exports.
 - **No reconstructed daily TTWROR requirement.** Historical daily NAV backfill remains deliberately outside the critical path.
 - **iPhone-first.** The primary workflow is one explicit action: `Actualiser et enregistrer`.
 
-## Status — v5.2.2 corrective release
+## Status — v5.2.3 corrective release
 
 v5.1 was frozen on 2026-09-06 after contradictory audit, CI coverage and live iPhone validation. Its immutable reference remains `frozen/v5.1.0` at commit `92ca8f61bdfd25c5733357789ed63425ec61f292`.
 
-v5.2.0 is frozen at `frozen/v5.2.0`. v5.2.2 corrects history/benchmark presentation and cross-device backup merges without changing financial methodology 5.1.
+v5.2.0 is frozen at `frozen/v5.2.0`. v5.2.3 corrects history/benchmark presentation and cross-device backup merges without changing financial methodology 5.1.
 
 v5.2 adds, without changing financial methodology:
 
@@ -26,13 +26,14 @@ v5.2 adds, without changing financial methodology:
 - touch-friendly inspection of sparse historical portfolio/benchmark observations;
 - built-production UI integration smoke coverage and a deterministic single application entry point.
 
-v5.2.2 additionally:
+v5.2.3 additionally:
 
 - makes the local matched-flow baseline date and value visible even when a benchmark is limited;
 - keeps the earliest compatible baseline checkpoint when web and PWA histories are merged;
 - excludes legacy-methodology snapshots from the v5.1 benchmark chart;
 - exposes the application version and deployed build identifier in the interface;
 - narrows the data-quality success wording to the controls that were actually run.
+- connects the benchmark observations that exist across missing snapshot dates without reconstructing the missing values.
 
 Validated automated path:
 
