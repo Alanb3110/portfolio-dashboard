@@ -1,6 +1,10 @@
 import type { BenchmarkId } from './benchmark';
 import type { ForwardBenchmarkCheckpoint } from './benchmark-forward';
-import type { HistorySnapshot } from './history';
+import {
+  HISTORY_METHODOLOGY_VERSION,
+  benchmarkBaselineSnapshot,
+  type HistorySnapshot,
+} from './history';
 
 export interface HistoryChartPoint {
   date: string;
@@ -39,8 +43,9 @@ function compatibleCheckpoint(
 }
 
 export function buildHistoryChartSeries(snapshots: HistorySnapshot[]): HistoryChartPoint[] {
-  const ordered = sortedUniqueSnapshots(snapshots);
-  const baseline = ordered[0];
+  const ordered = sortedUniqueSnapshots(snapshots)
+    .filter((snapshot) => snapshot.methodologyVersion === HISTORY_METHODOLOGY_VERSION);
+  const baseline = benchmarkBaselineSnapshot(ordered);
   if (!baseline) return [];
 
   return ordered.map((snapshot) => {

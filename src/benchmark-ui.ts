@@ -17,7 +17,7 @@ import {
 } from './benchmark-forward';
 import type { CashFlow, PortfolioAnalysis } from './domain';
 import { persistBenchmarkObservation } from './history-benchmark-observations';
-import type { HistorySnapshot } from './history';
+import { benchmarkBaselineSnapshot, type HistorySnapshot } from './history';
 import { fetchMarketProxyPrices } from './providers/market-proxy';
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -63,12 +63,6 @@ function metric(label: string, value: string, subtext?: string): HTMLElement {
   card.append(element('p', 'metric-label', label), element('strong', 'metric-value', value));
   if (subtext) card.append(element('p', 'metric-subtext', subtext));
   return card;
-}
-
-function earliestBaseline(snapshots: HistorySnapshot[], currentDate: string): HistorySnapshot | null {
-  return [...snapshots]
-    .filter((snapshot) => snapshot.snapshotDate <= currentDate)
-    .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate))[0] ?? null;
 }
 
 function latestCompatibleCheckpoint(
@@ -155,7 +149,7 @@ export function renderForwardBenchmarkPanel(
     ),
   );
 
-  const baseline = earliestBaseline(historySnapshots, analysis.snapshotDate);
+  const baseline = benchmarkBaselineSnapshot(historySnapshots, analysis.snapshotDate);
   if (!baseline) {
     section.append(element('p', 'status', 'Enregistre un premier snapshot local pour initialiser le benchmark forward.'));
     return section;
@@ -252,8 +246,8 @@ export function renderForwardBenchmarkPanel(
       const statuses = [world.status, sp500.status];
       const checkpointNote = persisted.every(Boolean) ? '' : ' · checkpoint local non enregistré';
       status.textContent = statuses.every((value) => value === 'PASS')
-        ? `PASS · comparaison depuis le ${baseline.snapshotDate}${checkpointNote}`
-        : `Comparaison disponible avec limitation : World ${world.status}, S&P 500 ${sp500.status}${checkpointNote}.`;
+        ? `PASS · baseline locale ${baseline.snapshotDate} à ${formatEur(baseline.mainValue)}${checkpointNote}`
+        : `Comparaison disponible avec limitation : World ${world.status}, S&P 500 ${sp500.status} · baseline locale ${baseline.snapshotDate} à ${formatEur(baseline.mainValue)}${checkpointNote}.`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       output.replaceChildren();

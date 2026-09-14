@@ -2,6 +2,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import benchmarkUi from '../src/benchmark-ui.ts?raw';
+import overviewUi from '../src/overview-ui.ts?raw';
+import packageJson from '../package.json';
+import { APP_VERSION } from '../src/version';
 
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
@@ -21,5 +24,10 @@ describe('history UI regressions', () => {
     const persistenceBlock = benchmarkUi.slice(start, end);
     expect(persistenceBlock).not.toContain('Promise.all');
     expect(persistenceBlock.match(/await persistCheckpoint\(/g)).toHaveLength(2);
+  });
+
+  it('keeps the visible application version aligned with package metadata', () => {
+    expect(APP_VERSION).toBe(packageJson.version);
+    expect(overviewUi).toContain('APP_VERSION_LABEL');
   });
 });

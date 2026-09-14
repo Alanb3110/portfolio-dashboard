@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   HISTORY_METHODOLOGY_VERSION,
+  benchmarkBaselineSnapshot,
   buildHistoryBackup,
   compareHistorySnapshots,
   createHistorySnapshot,
@@ -154,6 +155,67 @@ describe('local snapshot history', () => {
     });
     const merged = mergeHistorySnapshots([old], [newerCheckpoint]);
     expect(merged[0]?.benchmarkCheckpoints['msci-world']?.asOfDate).toBe('2026-08-30');
+  });
+
+  it('preserves checkpoints from the canonical earliest baseline when device histories are merged', () => {
+    const pwaBaseline = historySnapshot({
+      snapshotDate: '2026-08-30',
+      ledgerCutoffDate: '2026-08-30',
+      mainValue: 5628,
+    });
+    const webBaseline = historySnapshot({
+      snapshotDate: '2026-09-05',
+      ledgerCutoffDate: '2026-09-05',
+      savedAt: '2026-09-05T12:00:00.000Z',
+      mainValue: 6002.30,
+    });
+    const pwaLatest = historySnapshot({
+      snapshotDate: '2026-09-14',
+      ledgerCutoffDate: '2026-09-14',
+      savedAt: '2026-09-14T12:00:00.000Z',
+      mainValue: 5938.87,
+      benchmarkCheckpoints: {
+        'msci-world': {
+          method: 'forward-matched-flow-v1',
+          benchmarkId: 'msci-world',
+          baselineDate: '2026-08-30',
+          baselineMainValue: 5628,
+          asOfDate: '2026-09-14',
+          units: 10,
+          terminalValue: 5907,
+          terminalPriceDate: '2026-09-14',
+          terminalPrice: 590.7,
+        },
+      },
+    });
+    const webLatest = historySnapshot({
+      snapshotDate: '2026-09-14',
+      ledgerCutoffDate: '2026-09-14',
+      savedAt: '2026-09-14T13:00:00.000Z',
+      mainValue: 5938.87,
+      benchmarkCheckpoints: {
+        'msci-world': {
+          method: 'forward-matched-flow-v1',
+          benchmarkId: 'msci-world',
+          baselineDate: '2026-09-05',
+          baselineMainValue: 6002.30,
+          asOfDate: '2026-09-14',
+          units: 10,
+          terminalValue: 5964.69,
+          terminalPriceDate: '2026-09-14',
+          terminalPrice: 596.469,
+        },
+      },
+    });
+
+    const merged = mergeHistorySnapshots([webBaseline, webLatest], [pwaBaseline, pwaLatest]);
+    const baseline = benchmarkBaselineSnapshot(merged);
+    const latest = merged.find((snapshot) => snapshot.snapshotDate === '2026-09-14');
+
+    expect(baseline?.snapshotDate).toBe('2026-08-30');
+    expect(latest?.savedAt).toBe(webLatest.savedAt);
+    expect(latest?.benchmarkCheckpoints['msci-world']?.baselineDate).toBe('2026-08-30');
+    expect(latest?.benchmarkCheckpoints['msci-world']?.terminalValue).toBe(5907);
   });
 
   it('round-trips a versioned v2 backup and rejects corrupted data', () => {

@@ -2,6 +2,7 @@ import type { BenchmarkId } from './benchmark';
 import type { ForwardBenchmarkCheckpoint } from './benchmark-forward';
 import {
   loadHistorySnapshots,
+  benchmarkBaselineSnapshot,
   saveHistoryBenchmarkCheckpoint,
   saveHistorySnapshot,
   type HistorySnapshot,
@@ -22,16 +23,12 @@ function sameCheckpoint(
     Math.abs(a.units - b.units) <= 1e-12;
 }
 
-function currentBaseline(snapshots: HistorySnapshot[]): HistorySnapshot | null {
-  return [...snapshots].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate))[0] ?? null;
-}
-
 function observationForDate(
   snapshots: HistorySnapshot[],
   benchmarkId: BenchmarkId,
   snapshotDate: string,
 ): ForwardBenchmarkCheckpoint | null {
-  const baseline = currentBaseline(snapshots);
+  const baseline = benchmarkBaselineSnapshot(snapshots);
   if (!baseline) return null;
   return snapshots
     .map((snapshot) => snapshot.benchmarkCheckpoints[benchmarkId])
@@ -89,8 +86,9 @@ export async function persistBenchmarkObservation(
 export async function backfillBenchmarkObservations(): Promise<number> {
   let snapshots = await loadHistorySnapshots();
   let updates = 0;
+  const baseline = benchmarkBaselineSnapshot(snapshots);
   for (const snapshot of snapshots) {
-    if (snapshot === currentBaseline(snapshots)) continue;
+    if (snapshot.snapshotDate === baseline?.snapshotDate) continue;
     const additions: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> = {};
     for (const benchmarkId of ['msci-world', 'sp500'] as BenchmarkId[]) {
       const checkpoint = observationForDate(snapshots, benchmarkId, snapshot.snapshotDate);
