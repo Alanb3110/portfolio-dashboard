@@ -1,3 +1,5 @@
+import { APP_VERSION_LABEL } from './version';
+
 const METRIC_CLASSES = [
   'metric-card--primary',
   'metric-card--performance',
@@ -85,7 +87,7 @@ function enhanceOverview(): boolean {
   const eyebrow = hero.querySelector<HTMLElement>('.eyebrow');
   const title = hero.querySelector<HTMLElement>('h1');
   const lede = hero.querySelector<HTMLElement>('.lede');
-  if (eyebrow) eyebrow.textContent = 'Portfolio Dashboard v5.2';
+  if (eyebrow) eyebrow.textContent = APP_VERSION_LABEL;
   if (title) title.textContent = 'Portefeuille';
   if (lede) lede.textContent = 'Vue principale : Compte-titres + PEA. Crypto, non coté et espèces restent séparés.';
 

@@ -355,7 +355,7 @@ function renderQuality(audit: LedgerAudit, analysis: PortfolioAnalysis): HTMLEle
     for (const warning of analysis.warnings) warnings.append(element('li', undefined, warning));
     section.append(warnings);
   } else {
-    section.append(element('p', 'pass', 'Aucune limitation détectée sur les contrôles actuellement implémentés.'));
+    section.append(element('p', 'pass', 'Aucune anomalie détectée par les contrôles transactionnels et de réconciliation actuellement implémentés.'));
   }
   return section;
 }

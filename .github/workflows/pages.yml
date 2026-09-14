@@ -32,6 +32,8 @@ jobs:
 
       - name: Validate and build
         run: npm run check
+        env:
+          VITE_BUILD_SHA: ${{ github.sha }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

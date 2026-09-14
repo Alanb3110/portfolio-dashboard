@@ -196,22 +196,31 @@ function benchmarkCheckpointsFromUnknown(
 function laterCheckpoint(
   a: ForwardBenchmarkCheckpoint | undefined,
   b: ForwardBenchmarkCheckpoint | undefined,
+  baseline?: HistorySnapshot | null,
 ): ForwardBenchmarkCheckpoint | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  if (a.baselineDate !== b.baselineDate || Math.abs(a.baselineMainValue - b.baselineMainValue) > 0.005) {
-    return b.asOfDate >= a.asOfDate ? b : a;
-  }
+  const matchesBaseline = (checkpoint: ForwardBenchmarkCheckpoint | undefined): checkpoint is ForwardBenchmarkCheckpoint =>
+    checkpoint != null &&
+    (baseline == null || (
+      checkpoint.baselineDate === baseline.snapshotDate &&
+      Math.abs(checkpoint.baselineMainValue - baseline.mainValue) <= 0.005
+    ));
+  const compatibleA = matchesBaseline(a) ? a : undefined;
+  const compatibleB = matchesBaseline(b) ? b : undefined;
+  if (!compatibleA) return compatibleB;
+  if (!compatibleB) return compatibleA;
+  a = compatibleA;
+  b = compatibleB;
   return b.asOfDate >= a.asOfDate ? b : a;
 }
 
 function mergeBenchmarkCheckpoints(
   a: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>,
   b: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>,
+  baseline?: HistorySnapshot | null,
 ): Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> {
   const result: Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>> = {};
   for (const benchmarkId of ['msci-world', 'sp500'] as BenchmarkId[]) {
-    const checkpoint = laterCheckpoint(a[benchmarkId], b[benchmarkId]);
+    const checkpoint = laterCheckpoint(a[benchmarkId], b[benchmarkId], baseline);
     if (checkpoint) result[benchmarkId] = checkpoint;
   }
   return result;
@@ -307,23 +316,43 @@ export function createHistorySnapshot(
   });
 }
 
+export function benchmarkBaselineSnapshot(
+  snapshots: HistorySnapshot[],
+  currentDate?: string,
+): HistorySnapshot | null {
+  return [...snapshots]
+    .filter((snapshot) => snapshot.methodologyVersion === HISTORY_METHODOLOGY_VERSION)
+    .filter((snapshot) => currentDate == null || snapshot.snapshotDate <= currentDate)
+    .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate))[0] ?? null;
+}
+
 export function mergeHistorySnapshots(
   existing: HistorySnapshot[],
   incoming: HistorySnapshot[],
 ): HistorySnapshot[] {
-  const byDate = new Map<string, HistorySnapshot>();
-  for (const raw of [...existing, ...incoming]) {
-    const record = validateHistorySnapshot(raw);
-    const previous = byDate.get(record.snapshotDate);
-    if (!previous) {
-      byDate.set(record.snapshotDate, record);
-      continue;
-    }
-    const winner = record.savedAt >= previous.savedAt ? record : previous;
-    const checkpoints = mergeBenchmarkCheckpoints(previous.benchmarkCheckpoints, record.benchmarkCheckpoints);
-    byDate.set(record.snapshotDate, { ...winner, benchmarkCheckpoints: checkpoints });
+  const records = [...existing, ...incoming].map(validateHistorySnapshot);
+  const recordsByDate = new Map<string, HistorySnapshot[]>();
+  for (const record of records) {
+    const group = recordsByDate.get(record.snapshotDate) ?? [];
+    group.push(record);
+    recordsByDate.set(record.snapshotDate, group);
   }
-  return [...byDate.values()].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+
+  const winners = [...recordsByDate.values()].map((group) =>
+    group.reduce((winner, record) => record.savedAt >= winner.savedAt ? record : winner),
+  );
+  const baseline = benchmarkBaselineSnapshot(winners);
+
+  return winners
+    .map((winner) => {
+      const group = recordsByDate.get(winner.snapshotDate) ?? [winner];
+      const benchmarkCheckpoints = group.reduce(
+        (merged, record) => mergeBenchmarkCheckpoints(merged, record.benchmarkCheckpoints, baseline),
+        {} as Partial<Record<BenchmarkId, ForwardBenchmarkCheckpoint>>,
+      );
+      return { ...winner, benchmarkCheckpoints };
+    })
+    .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
 }
 
 export function previousHistorySnapshot(

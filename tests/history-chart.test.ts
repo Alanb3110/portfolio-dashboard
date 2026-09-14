@@ -91,4 +91,14 @@ describe('buildHistoryChartSeries', () => {
 
     expect(buildHistoryChartSeries([first, second])[1]!.sp500).toBeNull();
   });
+
+  it('excludes legacy methodology snapshots from the benchmark chart baseline', () => {
+    const legacy = snapshot('2026-08-01', 5000);
+    legacy.methodologyVersion = '5.0-legacy';
+    const current = snapshot('2026-09-05', 6000);
+
+    expect(buildHistoryChartSeries([legacy, current])).toEqual([
+      { date: '2026-09-05', portfolio: 6000, world: 6000, sp500: 6000 },
+    ]);
+  });
 });

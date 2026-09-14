@@ -257,7 +257,7 @@ function renderLastStoredPeriod(snapshots: HistorySnapshot[]): HTMLElement | nul
     element(
       'p',
       'muted-block',
-      `Calcul sur ${period.days} jour(s), à partir de deux snapshots réels compatibles. Aucune NAV quotidienne n’est reconstruite.`,
+      `Calcul sur ${period.days} ${period.days === 1 ? 'jour' : 'jours'}, à partir de deux snapshots réels compatibles. Aucune NAV quotidienne n’est reconstruite.`,
     ),
   );
   return section;
