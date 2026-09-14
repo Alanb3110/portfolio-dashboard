@@ -13,6 +13,29 @@ export interface HistoryChartPoint {
   sp500: number | null;
 }
 
+export type HistoryChartSeriesKey = 'portfolio' | 'world' | 'sp500';
+
+/**
+ * Connects the observations that actually exist for a series. Missing values
+ * stay absent from the snapshot data and do not create synthetic chart points.
+ */
+export function buildObservedSeriesPath(
+  points: readonly HistoryChartPoint[],
+  key: HistoryChartSeriesKey,
+  x: (date: string) => number,
+  y: (value: number) => number,
+): string {
+  let path = '';
+  let hasObservation = false;
+  for (const point of points) {
+    const value = point[key];
+    if (value == null) continue;
+    path += `${hasObservation ? ' L' : ' M'} ${x(point.date).toFixed(2)} ${y(value).toFixed(2)}`;
+    hasObservation = true;
+  }
+  return path;
+}
+
 function sortedUniqueSnapshots(snapshots: HistorySnapshot[]): HistorySnapshot[] {
   const byDate = new Map<string, HistorySnapshot>();
   for (const snapshot of snapshots) {

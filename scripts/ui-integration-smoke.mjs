@@ -9,6 +9,7 @@ import 'fake-indexeddb/auto';
 const root = process.cwd();
 const distDir = path.join(root, 'dist');
 const html = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
+const packageJson = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
 const moduleSrc = html.match(/<script[^>]+type="module"[^>]+src="([^"]+\.js)"/)?.[1]
   ?? html.match(/<script[^>]+src="([^"]+\.js)"[^>]+type="module"/)?.[1];
 assert.ok(moduleSrc, 'Built index.html must reference the application module bundle.');
@@ -82,7 +83,11 @@ assert.ok(firstDocument.querySelector('.dashboard-shell'), 'Overview enhancer mu
 assert.ok(firstDocument.querySelector('.quick-actions'), 'Primary iPhone quick actions must be present.');
 assert.equal(firstDocument.querySelectorAll('.utility-drawer').length, 2, 'Import/history secondary controls must be moved into two drawers.');
 assert.equal(firstDocument.querySelector('.hero h1')?.textContent, 'Portefeuille');
-assert.match(firstDocument.querySelector('.hero .eyebrow')?.textContent ?? '', /^Portfolio Dashboard v5\.2\.2 · build /);
+assert.equal(
+  firstDocument.querySelector('.hero .eyebrow')?.textContent,
+  `Portfolio Dashboard v${packageJson.version} · build local`,
+  'Built UI version must match package metadata.',
+);
 assert.equal(firstDocument.querySelector('.quick-refresh-button')?.textContent, 'Actualiser et enregistrer');
 assert.equal(firstDocument.querySelector('.quick-save-button'), null, 'Manual snapshot save must remain a secondary history action.');
 assert.match(firstDocument.body.textContent ?? '', /Enregistrer le snapshot courant/, 'Manual snapshot save must remain available in the history drawer.');

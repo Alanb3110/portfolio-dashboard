@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForwardBenchmarkCheckpoint } from '../src/benchmark-forward';
-import { buildHistoryChartSeries } from '../src/history-chart';
+import { buildHistoryChartSeries, buildObservedSeriesPath } from '../src/history-chart';
 import { HISTORY_SCHEMA_VERSION, type HistorySnapshot } from '../src/history';
 
 function snapshot(date: string, mainValue: number): HistorySnapshot {
@@ -100,5 +100,27 @@ describe('buildHistoryChartSeries', () => {
     expect(buildHistoryChartSeries([legacy, current])).toEqual([
       { date: '2026-09-05', portfolio: 6000, world: 6000, sp500: 6000 },
     ]);
+  });
+});
+
+describe('buildObservedSeriesPath', () => {
+  it('connects known sparse observations without creating a point for missing snapshots', () => {
+    const points = [
+      { date: '2026-09-05', portfolio: 6000, world: 6000, sp500: 6000 },
+      { date: '2026-09-06', portfolio: 6002, world: null, sp500: null },
+      { date: '2026-09-08', portfolio: 6013, world: null, sp500: null },
+      { date: '2026-09-14', portfolio: 5939, world: 5953, sp500: 5984 },
+    ];
+
+    const path = buildObservedSeriesPath(
+      points,
+      'world',
+      (date) => Number(date.slice(-2)),
+      (value) => value,
+    );
+
+    expect(path).toBe(' M 5.00 6000.00 L 14.00 5953.00');
+    expect(path).not.toContain('6.00');
+    expect(path).not.toContain('8.00');
   });
 });
